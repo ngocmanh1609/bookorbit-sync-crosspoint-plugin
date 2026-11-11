@@ -4,6 +4,12 @@
 [![Tests](https://github.com/ngocmanh1609/bookorbit-sync-crosspoint-plugin/actions/workflows/tests.yml/badge.svg)](https://github.com/ngocmanh1609/bookorbit-sync-crosspoint-plugin/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+> 💛 Many thanks to [neonsolstice](https://github.com/neonsolstice) for [BookOrbit](https://github.com/bookorbit/bookorbit)
+> and its excellent KOReader plugin, which this project follows feature for feature, and to
+> [Styxbleich](https://github.com/Styxbleich) for
+> [BookOrbit-Sync-for-Crosspoint](https://github.com/Styxbleich/BookOrbit-Sync-for-Crosspoint), the plugin that
+> showed it could be done on CrossPoint and inspired this one.
+
 Your self-hosted [BookOrbit](https://github.com/bookorbit/bookorbit) library on a
 [CrossPoint](https://github.com/crosspoint-reader/crosspoint-reader) e-reader. The plugin browses and downloads books,
 syncs reading progress and reading sessions, and syncs highlights, read status and ratings. These are the features of
@@ -202,5 +208,4 @@ sh scripts/package.sh
   zip and publishes the release.
 
 This plugin was written from the CrossPoint firmware and BookOrbit server sources. It is not affiliated with either
-project. [BookOrbit-Sync-for-Crosspoint](https://github.com/Styxbleich/BookOrbit-Sync-for-Crosspoint) served as a
-reference for what is possible. MIT licensed.
+project. MIT licensed.
