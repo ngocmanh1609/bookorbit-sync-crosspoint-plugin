@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 > 💛 Many thanks to [neonsolstice](https://github.com/neonsolstice) for [BookOrbit](https://github.com/bookorbit/bookorbit)
-> and its excellent KOReader plugin, which this project follows feature for feature, and to
+> and its excellent KOReader plugin, whose features this project brings to CrossPoint, and to
 > [Styxbleich](https://github.com/Styxbleich) for
 > [BookOrbit-Sync-for-Crosspoint](https://github.com/Styxbleich/BookOrbit-Sync-for-Crosspoint), the plugin that
 > showed it could be done on CrossPoint and inspired this one.
