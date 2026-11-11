@@ -21,10 +21,15 @@ BookOrbit's [KOReader plugin](https://bookorbit.app/koreader-plugin), rebuilt as
 > may work but are untested. Reading sessions need a reader with a clock chip. Reports from other devices are welcome.
 
 <p align="center">
-  <img src="docs/images/web-card.gif" alt="The BookOrbit card on the reader's Plugins web page: saving the login, adding shelves, syncing highlights and setting a rating" width="760">
+  <img src="docs/images/picco-showcase.png" alt="Four BOOX Picco screens: the BookOrbit lists, Continue reading, a page with a synced highlight, and the progress sync choice" width="100%">
+  <br><sub>Illustrated screens of the on-reader flow. Their layout and wording follow CrossPoint 2.0, but they are not device captures.</sub>
 </p>
 
 ## Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
 
 **On the reader**
 
@@ -35,12 +40,29 @@ BookOrbit's [KOReader plugin](https://bookorbit.app/koreader-plugin), rebuilt as
   to Wi-Fi or goes to sleep.
 - **Reading progress:** sync your position with BookOrbit, and choose which position wins when they differ.
 
+</td>
+<td width="50%" valign="top" align="center">
+  <img src="docs/images/picco-walkthrough.gif" alt="Walkthrough on a BOOX Picco: Plugins, BookOrbit lists, Continue reading, search, download, a synced highlight, progress sync and the reading-session message" width="340">
+  <br><sub>Illustrated walkthrough</sub>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
 **On the reader's web page**, from a phone or computer on the same Wi-Fi
 
 - **One-time setup:** enter your login once. The plugin also configures the reader's own progress sync for you.
 - **Two-way highlights:** new highlights and deletions go both ways. Every highlight is placed by its position and
   checked against the book's text.
 - **Read status and star rating** for any book.
+
+</td>
+<td width="50%" valign="top" align="center">
+  <img src="docs/images/web-card.gif" alt="The BookOrbit card on the reader's Plugins web page: saving the login, adding shelves, syncing highlights and setting a rating" width="400">
+  <br><sub>The real web card, recorded against a demo library</sub>
+</td>
+</tr>
+</table>
 
 ## Install
 
