@@ -158,6 +158,15 @@ test('text search folds quotes and whitespace and needs a hint for repeated text
   assert.equal(lib.findText(m, 'not here', null), null);
 });
 
+test('text search: a paragraph break matches a chapter with no whitespace between paragraphs', () => {
+  // KOReader joins paragraphs with "\n"; this chapter's text (and the reader's offsets) has nothing between them.
+  const m = chapter('<p>the cat sat.</p><p>Then the cat ran.</p>');
+  const hit = lib.findText(m, 'sat.\nThen', null);
+  assert.equal(lib.visibleSlice(m, hit.start, hit.end), 'sat.Then');
+  assert.equal(lib.sameText('sat.\nThen', 'sat.Then'), true);
+  assert.equal(lib.sameText('sat. Then', 'sat. Them'), false);
+});
+
 // ------------------------------------------------------- highlight exchange
 
 const CFG = { server: 'http://bo.local:3000', user: 'reader', key: md5hex('secret'), device_id: 'a'.repeat(64) };
@@ -244,6 +253,25 @@ test('sync: a BookOrbit highlight that cannot be found in the book is acknowledg
   assert.equal(r.failed, 1);
   assert.equal(s.reader.sd.has(s.plugin.clippingStorePath(BOOK)), false, 'nothing written');
   assert.deepEqual(s.acks()[0].body.books[0].applied, [{ serverId: ghost.id, version: 1, status: 'failed' }]);
+  assert.deepEqual(plain(r.problems), [{ from: 'BookOrbit', reason: 'its text was not found in the chapter', text: 'words that are not in this book', chapter: '', pos0: '/body/DocFragment[1]/body/p[7]/text().0', pos1: '/body/DocFragment[1]/body/p[7]/text().9' }]);
+});
+
+test('sync: a KOReader highlight across two paragraphs lands in a chapter written without whitespace between them', async () => {
+  const s = await scenario({ records: [] }); // CH0 is "<p>…April.</p><p>The clocks…</p>"
+  s.bookorbit.addWebHighlight(s.hash, { text: 'in April.\nThe clocks', pos0: '/body/DocFragment[1]/body/p[1]/text().25', pos1: '/body/DocFragment[1]/body/p[2]/text().10' });
+  const r = await s.sync();
+  assert.deepEqual([r.added, r.failed, r.problems.length], [1, 0, 0]);
+  const rec = s.store().records[0];
+  assert.deepEqual([rec.spine, rec.startOffset, rec.endOffset], [0, 25, 44]);
+});
+
+test('sync: a highlight running into the next chapter is refused with that reason', async () => {
+  const s = await scenario({ records: [] });
+  s.bookorbit.addWebHighlight(s.hash, { text: 'striking thirteen.\nWinston', pos0: '/body/DocFragment[1]/body/p[2]/text().16', pos1: '/body/DocFragment[2]/body/p/text().7' });
+  const r = await s.sync();
+  assert.equal(r.failed, 1);
+  assert.equal(r.problems[0].reason, 'it spans two chapters');
+  assert.match(s.plugin.describeSync(r), /1 from BookOrbit could not be placed/);
 });
 
 test('sync: a book BookOrbit does not know is reported and nothing is written', async () => {

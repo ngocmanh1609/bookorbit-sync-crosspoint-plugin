@@ -15,9 +15,11 @@
   rebuilt. Bulk download is not offered either: the reader downloads one book at a time.
 - **No automatic progress pull.** Progress syncs when you use **Sync progress**. CrossPoint runs nothing when a book
   opens, and a plugin cannot move the reading position.
-- **Highlights sync from the web card, not in the background.** Plugin events cannot read files. BookOrbit also
-  does not implement CrossPoint's own clipping-sync endpoint (`/api/v1/clippings`), which is why the card turns
-  that sync off.
+- **The reader never syncs highlights by itself.** They sync when you press **Sync highlights** on the web card.
+  Plugin events cannot read files. BookOrbit also does not implement CrossPoint's own clipping-sync endpoint
+  (`/api/v1/clippings`), which is why the card turns that sync off.
+- **No restart from a plugin.** The reader's web server has no restart route. None is needed after an update on
+  2.0.0.
 - **Bookmarks** are not synced. The reader's bookmarks have no exchange format in this version.
 - **One level of catalog lists.** The firmware's plugin catalog has one list picker, and choosing a book can only
   download it or show its details. "Collections → a collection → its books" can't be built, so collections and
@@ -44,9 +46,10 @@
 - They need a trusted clock, which the Picco's clock chip provides. A reader that lost its time needs one Wi-Fi
   connection first.
 - The reader's queue holds about 4KB per plugin, roughly a dozen sessions. Connect now and then.
-- A plugin installed or updated mid-session gets events only after a restart.
-- If you replace the plugin folder while sessions are still queued, they are lost. Use Sync progress before
-  updating.
+- After an install or update, the reader picks up the plugin's events when File Transfer ends, when Home → Plugins
+  opens, or after a Plugin Hub install. No restart is needed.
+- If you replace the plugin folder by hand while sessions are still queued, they are lost. Use Sync progress
+  before updating. A Plugin Hub update keeps them.
 - Each session is sent as two points on a 10,000-step scale, so BookOrbit statistics that count raw pages may show
   that scale.
 
@@ -57,8 +60,11 @@
 - **Positions are rebuilt from the book.** The reader stores highlights as character offsets. The card converts them
   to KOReader positions by reading the EPUB, and back again. BookOrbit re-checks every position against the
   highlighted text.
-  - A highlight whose text cannot be found is skipped and reported.
-  - A highlight that crosses chapters may not be placed.
+  - A highlight whose text cannot be found is skipped. **Show which** on the card lists it with the reason.
+  - A highlight that runs into the next chapter can't be placed, because the reader keeps each highlight inside one
+    chapter.
+  - Paragraph breaks are ignored when matching text, because KOReader stores them as a line break and many books
+    have no space between paragraphs.
   - Very large chapter text nodes (over 8,192 characters) are not split the way KOReader splits them, so positions
     inside them may be repaired by BookOrbit rather than exact.
 - **Limits.**
@@ -68,6 +74,17 @@
 - **Edits.** CrossPoint highlights have no notes or colours, so edits made in BookOrbit only update the highlighted
   text and position.
 - **Times.** Highlight times use your browser's time zone, which should match the time zone set in BookOrbit.
+
+## Updates and the problem log
+
+- **The update banner follows Plugin Hub.** The card reads the Hub's catalog, so a new release shows up there (and
+  in Plugin Hub on the reader) only after the Hub refreshes, a few times a day. The check needs internet access;
+  without it (for example in the reader's hotspot mode) the card stays quiet.
+- **The log only covers the web card.** Errors in the reader's own catalog, downloads and progress sync go to the
+  firmware's serial port, which a plugin can't read. The report does show how many reading sessions are waiting to be
+  sent, which is the visible sign that sending them fails.
+- **What the log contains.** It leaves out the password, key, username, server address and device ID. It does
+  contain book file paths and the start of highlights that couldn't be synced.
 
 ## Credentials
 

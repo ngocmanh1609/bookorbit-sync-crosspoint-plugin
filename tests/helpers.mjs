@@ -14,17 +14,27 @@ const CODE = readFileSync(PAYLOAD + 'plugin.js', 'utf8');
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-/** A reader with an SD card, its web API (as plugin-host.js exposes it) and a BookOrbit behind the relay. */
-export function fakeReader({ bookorbit, files = {}, settings, status } = {}) {
+/**
+ * A reader with an SD card, its web API (as plugin-host.js exposes it) and a BookOrbit behind the relay.
+ * `web` answers other hosts (the Plugin Hub catalog): { url: body string | { status, body } }; anything else is 404.
+ */
+export function fakeReader({ bookorbit, files = {}, settings, status, web = {} } = {}) {
   const sd = new Map(Object.entries(files).map(([p, v]) => [p, typeof v === 'string' ? enc.encode(v) : v]));
   const writes = [];
   const settingsPosts = [];
   const relays = [];
+  const remote = (method, url, headers, body) => {
+    if (bookorbit && !/^https:\/\/(raw\.githubusercontent\.com|github\.com)\//.test(url)) return bookorbit.handle(method, url, headers, body);
+    const r = web[url];
+    if (r === undefined) return { status: 404, body: '404: Not Found' };
+    return typeof r === 'string' ? { status: 200, body: r } : r;
+  };
   const reader = {
     sd,
     writes,
     settingsPosts,
     relays,
+    web,
     failWrites: null,
     settings: settings || {
       koServerUrl: { key: 'koServerUrl', type: 'string', value: '' },
@@ -78,7 +88,7 @@ export function fakeReader({ bookorbit, files = {}, settings, status } = {}) {
     dir: PLUGIN_DIR,
     async relay(method, url, headers, body) {
       relays.push({ method, url, headers, body });
-      const r = bookorbit.handle(method, url, headers, body);
+      const r = remote(method, url, headers, body);
       if (r.body.length > 64 * 1024) {
         const err = new Error('/api/relay 502: relay failed; large bodies need /api/fetch');
         err.status = 502;
@@ -105,7 +115,7 @@ export function fakeReader({ bookorbit, files = {}, settings, status } = {}) {
         err.status = 400;
         throw err;
       }
-      const r = bookorbit.handle(method, url, headers, body);
+      const r = remote(method, url, headers, body);
       sd.set(dest, enc.encode(r.body));
       return { status: r.status, bytes: r.body.length, complete: true };
     },
@@ -136,6 +146,16 @@ export function loadPlugin(reader) {
     btoa,
     atob,
     crypto: webcrypto,
+    Blob,
+    URLSearchParams,
+    navigator: { userAgent: 'node-test' },
+    // Unref'd so the log's 1s write debounce never holds a finished test open; tests flush explicitly.
+    setTimeout: (fn, ms) => {
+      const t = setTimeout(fn, ms);
+      t.unref();
+      return t;
+    },
+    clearTimeout,
     console,
     document,
     window,

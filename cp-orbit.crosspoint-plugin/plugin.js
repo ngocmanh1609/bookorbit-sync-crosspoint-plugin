@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.2.0';
+  const VERSION = '0.3.0';
   const PLUGIN_VERSION = 'cp-orbit/' + VERSION;
   const DEVICE_MODEL = 'CrossPoint';
   // User data lives outside the plugin folder so replacing the folder on update keeps it.
@@ -543,12 +543,14 @@
   const FOLD = { '‘': "'", '’': "'", '‚': "'", '‛': "'", '“': '"', '”': '"', '„': '"', '‟': '"', '–': '-', '—': '-', '­': '' };
   const foldChar = (c) => (FOLD[c] !== undefined ? FOLD[c] : c).toLowerCase();
 
-  function normText(s, fold) {
+  // compact drops whitespace entirely: KOReader joins paragraphs with "\n", while a chapter written
+  // without whitespace between its blocks reads "end.Next" here (and in the reader's offsets).
+  function normText(s, fold, compact) {
     let out = '';
     let space = true;
     for (const ch of String(s || '').normalize('NFD')) {
       if (/\s/.test(ch)) {
-        if (!space) out += ' ';
+        if (!space && !compact) out += ' ';
         space = true;
       } else {
         out += fold ? foldChar(ch) : ch;
@@ -558,10 +560,11 @@
     return out.trim();
   }
 
-  const sameText = (a, b) => normText(a, false) === normText(b, false) || normText(a, true) === normText(b, true);
+  const MATCH_MODES = [[false, false], [true, false], [true, true]]; // [fold, compact], strictest first
+  const sameText = (a, b) => MATCH_MODES.some(([fold, compact]) => normText(a, fold, compact) === normText(b, fold, compact));
 
-  function searchIndex(model, fold) {
-    const key = fold ? 'searchFolded' : 'search';
+  function searchIndex(model, fold, compact) {
+    const key = compact ? 'searchCompact' : fold ? 'searchFolded' : 'search';
     if (model[key]) return model[key];
     let text = '';
     const map = [];
@@ -569,7 +572,7 @@
     let space = true;
     for (const ch of model.text) {
       if (/\s/.test(ch)) {
-        if (!space) {
+        if (!space && !compact) {
           text += ' ';
           map.push(cp);
         }
@@ -591,10 +594,10 @@
 
   /** Finds `text` in the chapter; with several matches, the one nearest `hint` (or ambiguous). */
   function findText(model, text, hint) {
-    for (const fold of [false, true]) {
-      const needle = normText(text, fold);
+    for (const [fold, compact] of MATCH_MODES) {
+      const needle = normText(text, fold, compact);
       if (!needle) return null;
-      const idx = searchIndex(model, fold);
+      const idx = searchIndex(model, fold, compact);
       const hits = [];
       for (let at = idx.text.indexOf(needle); at >= 0 && hits.length < 64; at = idx.text.indexOf(needle, at + 1)) hits.push(at);
       if (!hits.length) continue;
@@ -739,6 +742,9 @@
     return err;
   }
 
+  /** A problem with what the user entered or chose, not a fault: shown on the card, never logged. */
+  const userError = (message) => Object.assign(new Error(message), { expected: true });
+
   /** BookOrbit's KOReader plugin API through the reader's relay (header auth, no tokens). */
   function boClient(api, cfg) {
     const headers = (json) =>
@@ -761,13 +767,15 @@
       const url = cfg.server + path;
       const payload = data === undefined ? '' : JSON.stringify(data);
       const hdrs = headers(data !== undefined);
+      // For the log: the path only (never the host), plus the start of the answer.
+      const fail = (message, status, body) => Object.assign(boError(message, status), { request: { method, path: path.split('?')[0], status, answer: String(body || '').slice(0, 300) } });
       let res;
       try {
         res = await api.relay(method, url, hdrs, payload);
       } catch (e) {
-        if (e.status !== 502) throw boError('The reader could not contact BookOrbit: ' + e.message, 0);
+        if (e.status !== 502) throw fail('The reader could not contact BookOrbit: ' + e.message, 0);
         if (method !== 'GET' && utf8(payload).length > FETCH_BODY_MAX) {
-          const err = boError('BookOrbit\'s answer was too large for the reader to relay.', 502);
+          const err = fail('BookOrbit\'s answer was too large for the reader to relay.', 502);
           err.tooLarge = true;
           throw err;
         }
@@ -780,14 +788,14 @@
         json = null;
       }
       const status = res.status;
-      if (status <= 0) throw boError('The reader could not reach BookOrbit at ' + cfg.server + '.', status);
+      if (status <= 0) throw fail('The reader could not reach BookOrbit at ' + cfg.server + '.', status);
       if (status >= 300 && status < 400) {
         const loc = (res.headers || []).find(([k]) => String(k).toLowerCase() === 'location');
-        throw boError('BookOrbit redirected the request' + (loc ? ' to ' + loc[1] : '') + '. Use that address as the server URL.', status);
+        throw fail('BookOrbit redirected the request' + (loc ? ' to ' + loc[1] : '') + '. Use that address as the server URL.', status);
       }
-      if (status === 401 || status === 403) throw boError('BookOrbit refused the login (HTTP ' + status + '). Check the KOReader sync username and password, and that sync is enabled for it.', status);
-      if (status === 404 && path.startsWith(KO + '/users')) throw boError('No BookOrbit KOReader API at ' + cfg.server + '. Check the server URL.', status);
-      if (status < 200 || status >= 300) throw boError('BookOrbit returned HTTP ' + status + (json && json.message ? ': ' + json.message : '') + '.', status);
+      if (status === 401 || status === 403) throw fail('BookOrbit refused the login (HTTP ' + status + '). Check the KOReader sync username and password, and that sync is enabled for it.', status, res.body);
+      if (status === 404 && path.startsWith(KO + '/users')) throw fail('No BookOrbit KOReader API at ' + cfg.server + '. Check the server URL.', status, res.body);
+      if (status < 200 || status >= 300) throw fail('BookOrbit returned HTTP ' + status + (json && json.message ? ': ' + json.message : '') + '.', status, res.body);
       return json;
     }
 
@@ -927,35 +935,55 @@
 
   // -------------------------------------------------------------- highlights
 
+  // Why a highlight could not be synced, in the words the card and the log show.
+  const WHY = {
+    format: 'not an EPUB position',
+    position: 'its position is not in this book',
+    chapters: 'it spans two chapters',
+    notFound: 'its text was not found in the chapter',
+    ambiguous: 'its text appears more than once in the chapter',
+    convert: 'its position could not be converted',
+    unknown: 'the reader does not have it',
+    full: 'the reader\'s highlight limit for this book is reached',
+  };
+  const missReason = (hit) => (hit && hit.ambiguous ? WHY.ambiguous : WHY.notFound);
+  const snippet = (t) => {
+    const s = String(t || '').replace(/\s+/g, ' ').trim();
+    return s.length > 80 ? s.slice(0, 79) + '…' : s;
+  };
+
+  /** A reader highlight's KOReader positions, or { reason } when it cannot be located. */
   async function recordPositions(epub, r) {
-    if (r.spine >= epub.spine.length) return null;
+    if (r.spine >= epub.spine.length) return { reason: WHY.position };
     const model = await epub.chapter(r.spine);
     let start = r.startOffset;
     let end = r.endOffset;
     if (start === NO_OFFSET || end === NO_OFFSET || end <= start || end > model.cps) {
       const hit = findText(model, r.text, null);
-      if (!hit || hit.ambiguous) return null;
+      if (!hit || hit.ambiguous) return { reason: missReason(hit) };
       start = hit.start;
       end = hit.end;
     }
     const pos0 = xpointerFor(model, r.spine, start, false);
     const pos1 = xpointerFor(model, r.spine, end, true);
-    return pos0 && pos1 ? { pos0, pos1 } : null;
+    return pos0 && pos1 ? { pos0, pos1 } : { reason: WHY.convert };
   }
 
-  /** Places a BookOrbit highlight in the book, verified against its text; null when it cannot be. */
+  /** Places a BookOrbit highlight in the book, verified against its text; { reason } when it cannot be. */
   async function placeRemote(epub, entry) {
     const p0 = parseXPointer(entry.pos0);
-    if (!p0 || p0.spine < 0 || p0.spine >= epub.spine.length) return null;
+    if (!p0 || p0.spine < 0 || p0.spine >= epub.spine.length) return { reason: WHY.position };
     const p1 = entry.pos1 ? parseXPointer(entry.pos1) : null;
     const model = await epub.chapter(p0.spine);
     const start = visibleAt(model, p0, false);
     const end = p1 && p1.spine === p0.spine ? visibleAt(model, p1, true) : null;
     const text = entry.text || '';
     if (start !== null && end !== null && end > start && sameText(visibleSlice(model, start, end), text)) return { spine: p0.spine, start, end };
-    if (!text.trim()) return null;
+    if (!text.trim()) return { reason: WHY.notFound };
     const hit = findText(model, text, start);
-    return hit && !hit.ambiguous ? { spine: p0.spine, start: hit.start, end: hit.end } : null;
+    if (hit && !hit.ambiguous) return { spine: p0.spine, start: hit.start, end: hit.end };
+    // The reader keeps one chapter per highlight; text that runs into the next chapter is never all here.
+    return { reason: p1 && p1.spine !== p0.spine ? WHY.chapters : missReason(hit) };
   }
 
   function newRecord(placed, entry) {
@@ -991,6 +1019,7 @@
     const changes = [];
     const fresh = {};
     const unresolved = [];
+    const problems = [];
     for (const r of store.records) {
       const lk = localKey(r);
       const known = state.items[lk];
@@ -999,8 +1028,9 @@
         continue;
       }
       const pos = await recordPositions(epub, r);
-      if (!pos) {
+      if (pos.reason) {
         unresolved.push(r);
+        problems.push({ from: 'reader', reason: pos.reason, text: snippet(r.text), chapter: r.chapter || '', pos0: '', pos1: '' });
         continue;
       }
       let date = r.timestamp > 0 ? new Date(r.timestamp * 1000) : now;
@@ -1017,7 +1047,7 @@
       if (r.chapter) change.chapter = r.chapter.slice(0, 500);
       changes.push(change);
     }
-    return { keys, changes, fresh, unresolved };
+    return { keys, changes, fresh, unresolved, problems };
   }
 
   const overlaps = (r, p) => r.spine === p.spine && r.startOffset !== NO_OFFSET && r.startOffset < p.end && p.start < r.endOffset;
@@ -1027,6 +1057,12 @@
     const applied = [];
     const deleted = [];
     const counts = { added: 0, updated: 0, deleted: 0, failed: 0, full: 0 };
+    const problems = [];
+    const refuse = (e, reason, counter) => {
+      applied.push({ serverId: e.serverId, version: e.version, status: 'failed' });
+      counts[counter || 'failed']++;
+      problems.push({ from: 'BookOrbit', reason, text: snippet(e.text), chapter: e.chapter || '', pos0: e.pos0 || '', pos1: e.pos1 || '' });
+    };
     let changed = false;
     const byKey = new Map(Object.entries(state.items).map(([lk, it]) => [it.k, lk]));
     const indexOf = (lk) => store.records.findIndex((r) => localKey(r) === lk);
@@ -1049,17 +1085,15 @@
       const lk = byKey.get(e.key);
       const i = lk ? indexOf(lk) : -1;
       if (i < 0) {
-        applied.push({ serverId: e.serverId, version: e.version, status: 'failed' });
-        counts.failed++;
+        refuse(e, WHY.unknown);
         continue;
       }
       const rec = store.records[i];
       const item = state.items[lk];
       if (e.pos0) {
         const placed = await placeRemote(epub, e);
-        if (!placed) {
-          applied.push({ serverId: e.serverId, version: e.version, status: 'failed' });
-          counts.failed++;
+        if (placed.reason) {
+          refuse(e, placed.reason);
           continue;
         }
         rec.spine = placed.spine;
@@ -1081,18 +1115,16 @@
     }
 
     for (const a of toApply.add || []) {
-      const placed = a.posFormat === 'xpointer' ? await placeRemote(epub, a) : null;
-      if (!placed) {
-        applied.push({ serverId: a.serverId, version: a.version, status: 'failed' });
-        counts.failed++;
+      const placed = a.posFormat === 'xpointer' ? await placeRemote(epub, a) : { reason: WHY.format };
+      if (placed.reason) {
+        refuse(a, placed.reason);
         continue;
       }
       // A re-offered highlight the reader already has (lost sync state) is adopted, not duplicated.
       let rec = store.records.find((r) => overlaps(r, placed) && sameText(r.text, a.text || ''));
       if (!rec) {
         if (store.records.length >= cap) {
-          applied.push({ serverId: a.serverId, version: a.version, status: 'failed' });
-          counts.full++;
+          refuse(a, WHY.full, 'full');
           continue;
         }
         rec = newRecord(placed, a);
@@ -1103,7 +1135,7 @@
       state.items[localKey(rec)] = { dt: a.datetime, k: md5(a.datetime + '|' + a.pos0), pos0: a.pos0, pos1: a.pos1 || null, sid: a.serverId };
       applied.push({ serverId: a.serverId, version: a.version, status: 'applied', verified: true });
     }
-    return { applied, deleted, changed, counts };
+    return { applied, deleted, changed, counts, problems };
   }
 
   const hasPending = (t) => !!t && ((t.add && t.add.length) || (t.edit && t.edit.length) || (t.delete && t.delete.length));
@@ -1118,7 +1150,7 @@
     const now = () => (ctx.now ? ctx.now() : new Date());
     log('Reading the book…');
     const bytes = await readBytes(book.path);
-    if (!bytes) throw new Error('Book not found on the SD card: ' + book.path);
+    if (!bytes) throw userError('Book not found on the SD card: ' + book.path);
     const hash = partialMd5(bytes);
     const epub = await openEpub(bytes);
     const storePath = clippingStorePath(book.path);
@@ -1166,7 +1198,7 @@
     Object.assign(state.items, plan.fresh);
     await writeJson(api, statePath, state);
 
-    const summary = { sent: plan.changes.length, added: 0, updated: 0, deleted: 0, failed: 0, full: 0, unresolved: plan.unresolved.length, more: false };
+    const summary = { sent: plan.changes.length, added: 0, updated: 0, deleted: 0, failed: 0, full: 0, unresolved: plan.unresolved.length, more: false, problems: plan.problems.slice() };
     let backedUp = false;
     for (let round = 0; response && hasPending(response.toApply); round++) {
       if (round >= PULL_ROUNDS_MAX) {
@@ -1185,6 +1217,7 @@
       await writeJson(api, statePath, state);
       await bo.post(KO + '/plugin/annotations/exchange-ack', Object.assign(deviceFields(cfg, now()), { books: [{ hash, applied: result.applied, deleted: result.deleted }] }));
       for (const k of ['added', 'updated', 'deleted', 'failed', 'full']) summary[k] += result.counts[k];
+      summary.problems.push(...result.problems);
       if (!response.more) break;
       const body = await exchange(minimal());
       response = body && body.results ? body.results[0] : null;
@@ -1228,11 +1261,218 @@
     ['abandoned', 'Abandoned'],
   ];
 
-  // --------------------------------------------------------------------- UI
+  // ------------------------------------------------------------- problem log
 
-  function render(container, api) {
-    const doc = container.ownerDocument || document;
-    const el = (tag, attrs, ...kids) => {
+  const LOG_PATH = DATA_DIR + '/logs/cp-orbit.log';
+  const LOG_MAX = 64 * 1024; // characters kept; the oldest entries go first
+  const ENTRY = '--- ';
+  const REPO = 'ngocmanh1609/bookorbit-sync-crosspoint-plugin';
+  // plugin-host.js loads this file as /plugin?name=cp-orbit&file=plugin.js, so its stack frames carry that.
+  const OURS = 'name=cp-orbit&file=plugin.js';
+
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  /** Takes out what a log posted on GitHub must never show: the key, username, server and device ID. */
+  function redact(text, cfg, deviceId) {
+    let out = String(text);
+    const swap = (value, label, wholeWord) => {
+      if (!value) return;
+      const edge = (re) => (wholeWord && re.test(value) ? '\\b' : '');
+      // Text already inside a placeholder stays: a user named "reader" must not turn "<reader>" into "<<user>>".
+      out = out.replace(new RegExp(edge(/^\w/) + escapeRe(String(value)) + edge(/\w$/), 'g'), (m, at, s) => (s[at - 1] === '<' && s[at + m.length] === '>' ? m : label));
+    };
+    const c = cfg || {};
+    swap(c.key, '<key>');
+    swap(deviceId, '<device-id>');
+    swap(c.device_id, '<device-id>');
+    if (c.server) {
+      swap(c.server, '<server>');
+      try {
+        const url = new URL(c.server);
+        swap(url.host, '<server>');
+        swap(url.hostname, '<server>');
+      } catch (e) {
+        /* not a URL */
+      }
+    }
+    if (c.user && String(c.user).length >= 3) swap(c.user, '<user>', true); // shorter names are too common to swap safely
+    if (typeof location !== 'undefined' && location.host) swap(location.host, '<reader>'); // the reader's own address, in stack frames
+    return out.replace(/("?x-auth-key"?\s*[:=]\s*"?)[0-9a-f]{32}/gi, '$1<key>');
+  }
+
+  /**
+   * Errors and warnings, kept in /.cp-orbit/logs (user data, so updates keep it). Never throws:
+   * a log that cannot be written must not become a second error.
+   */
+  function createLog(api, secrets) {
+    let saved = null; // the file's text, once read
+    let pending = '';
+    let timer = null;
+    let chain = Promise.resolve();
+    const load = async () => {
+      if (saved !== null) return;
+      try {
+        const bytes = await readBytes(LOG_PATH);
+        saved = bytes ? dec.decode(bytes) : '';
+      } catch (e) {
+        saved = '';
+      }
+    };
+    const trim = (t) => {
+      if (t.length <= LOG_MAX) return t;
+      const cut = t.slice(t.length - LOG_MAX);
+      const at = cut.indexOf('\n' + ENTRY);
+      return at >= 0 ? cut.slice(at + 1) : '';
+    };
+    function flush() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      chain = chain
+        .then(async () => {
+          await load();
+          if (!pending) return;
+          saved = trim(saved + pending);
+          pending = '';
+          await writeBytes(api, LOG_PATH, utf8(saved));
+        })
+        .catch(() => {});
+      return chain;
+    }
+    function add(level, op, what, context) {
+      const err = what && typeof what === 'object' ? what : null;
+      const lines = [ENTRY + new Date().toISOString() + ' ' + level + ' ' + op + ' (cp-orbit ' + VERSION + ')', err ? String(err.message || err) : String(what)];
+      const req = err && err.request;
+      if (req) lines.push('request: ' + req.method + ' ' + req.path + ' -> ' + req.status + (req.answer ? '\nanswer: ' + req.answer : ''));
+      for (const [k, v] of Object.entries(context || {})) if (v !== undefined && v !== null && v !== '') lines.push(k + ': ' + v);
+      if (level === 'ERROR' && err && err.stack) lines.push('stack:\n' + String(err.stack).split('\n').map((l) => l.trim()).filter(Boolean).map((l) => '  ' + l).join('\n'));
+      pending += redact(lines.join('\n'), secrets.cfg, secrets.deviceId) + '\n';
+      if (!timer) timer = setTimeout(flush, 1000);
+    }
+    async function text() {
+      await flush();
+      return saved || '';
+    }
+    async function clear() {
+      await flush();
+      saved = 'Log cleared ' + new Date().toISOString() + '\n';
+      await writeBytes(api, LOG_PATH, utf8(saved)).catch(() => {});
+    }
+    return { add, flush, text, clear };
+  }
+
+  /** How many entries the log holds, and the newest one's time and message. */
+  function logStats(text) {
+    const lines = String(text || '').split('\n');
+    let count = 0;
+    let last = -1;
+    lines.forEach((l, i) => {
+      if (l.startsWith(ENTRY)) {
+        count++;
+        last = i;
+      }
+    });
+    return { count, lastTime: last >= 0 ? lines[last].slice(ENTRY.length).split(' ')[0] : '', lastMessage: last >= 0 ? lines[last + 1] || '' : '' };
+  }
+
+  /** The file a user attaches to a GitHub issue: what the reader looks like now, then the log. */
+  async function buildReport(api, log, secrets) {
+    const body = await log.text();
+    const cfg = secrets.cfg || (await readJson(CONFIG_PATH).catch(() => null));
+    const st = await fetch('/api/status') // without ?plugin=, so no device ID
+      .then((r) => r.json())
+      .catch(() => ({}));
+    const ko = await getSettings(['koServerUrl', 'koServerType', 'koMatchMethod', 'koSyncBehavior', 'koSyncClippings']).catch(() => null);
+    const device = await readJson(api.dir + '/device.json').catch(() => null);
+    const outbox = await readBytes(api.dir + '/events.jsonl').catch(() => null);
+    const value = (item) => (!item ? 'n/a' : Array.isArray(item.options) && item.options[item.value] !== undefined ? item.options[item.value] : item.type === 'toggle' ? (item.value ? 'on' : 'off') : String(item.value));
+    const koUrl = ko && ko.koServerUrl ? String(ko.koServerUrl.value || '').replace(/\/+$/, '') : '';
+    const koTarget = !koUrl ? 'not set' : cfg && koUrl === cfg.server + KO ? 'BookOrbit' : 'another server';
+    const browse = (device && device.browse) || {};
+    const lines = [
+      'cp-orbit ' + VERSION + ' problem log, saved ' + new Date().toISOString(),
+      'Firmware: ' + (st.firmwareFamily || '?') + ' ' + (st.version || '?') + ', device ' + (st.device || '?') + ', free memory ' + (st.freeHeap || '?') + ' bytes, up ' + (st.uptime || '?') + ' s',
+      'Browser: ' + (typeof navigator !== 'undefined' && navigator.userAgent ? navigator.userAgent : '?'),
+      'Plugin folder: ' + api.dir,
+      'Connection saved: ' + (cfg && cfg.server && cfg.key ? 'yes' : 'no') + (cfg && cfg.dest_dir ? ', download folder ' + cfg.dest_dir : ''),
+      'Reader progress sync: ' + koTarget + ', type ' + value(ko && ko.koServerType) + ', matching ' + value(ko && ko.koMatchMethod) + ', when positions differ ' + value(ko && ko.koSyncBehavior) + ', clipping sync ' + value(ko && ko.koSyncClippings),
+      'Catalog lists: ' + (browse.lists || []).filter((l) => l.shelf).length + ' from BookOrbit' + (browse.lists_url ? ', libraries fetched live' : ''),
+      'Reading sessions waiting to be sent: ' + (outbox ? dec.decode(outbox).split('\n').filter((l) => l.trim()).length : 0),
+      '',
+      body || 'No problems logged.',
+    ];
+    return redact(lines.join('\n'), cfg, secrets.deviceId);
+  }
+
+  /** A new GitHub issue from the bug report form, filled in with what the card knows. */
+  function issueUrl(status, lastMessage) {
+    const q = new URLSearchParams({ template: 'bug_report.yml', version: VERSION, firmware: (status && status.version) || '', device: (status && status.device) || '' });
+    if (lastMessage) q.set('title', 'Problem: ' + lastMessage.slice(0, 80));
+    return 'https://github.com/' + REPO + '/issues/new?' + q.toString();
+  }
+
+  /** Logs errors that escape the card's own handlers, and only this plugin's. */
+  function trapErrors(log) {
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    const ours = (s) => String(s || '').includes(OURS);
+    window.addEventListener('error', (ev) => {
+      if (ours(ev.filename) || ours(ev.error && ev.error.stack)) log.add('ERROR', 'uncaught', ev.error || ev.message || 'Script error');
+    });
+    window.addEventListener('unhandledrejection', (ev) => {
+      if (ev.reason && ours(ev.reason.stack)) log.add('ERROR', 'uncaught', ev.reason);
+    });
+  }
+
+  // ----------------------------------------------------------------- updates
+
+  // Plugin Hub installs and updates cp-orbit on the reader; its catalog lists what it can install right now.
+  const HUB_CATALOG = 'https://raw.githubusercontent.com/crosspoint-reader/crosspoint-plugin-hub/main/catalog.json';
+  const UPDATE_PATH = DATA_DIR + '/update.json';
+  const HUB_TMP = DATA_DIR + '/tmp/catalog.json';
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  const semver = (v) => {
+    const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(v || ''));
+    return m ? m.slice(1).map(Number) : null;
+  };
+  function isNewer(version, than) {
+    const a = semver(version);
+    const b = semver(than);
+    if (!a || !b) return false;
+    for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+    return false;
+  }
+
+  /** GET through the relay, or through the SD card when the answer is over the relay's 64KB cap. */
+  async function fetchText(api, url, tmp) {
+    let res;
+    try {
+      res = await api.relay('GET', url, { accept: 'application/json' }, '');
+    } catch (e) {
+      if (e.status !== 502) throw e;
+      const r = await api.fetchToSd(url, tmp, {});
+      const bytes = await readBytes(tmp);
+      res = { status: r.status || 200, body: bytes ? dec.decode(bytes) : '' };
+    }
+    if (res.status < 200 || res.status >= 300) throw new Error('Plugin Hub answered HTTP ' + res.status + '.');
+    return res.body;
+  }
+
+  /** The newest cp-orbit in the Plugin Hub catalog; asks at most once a day unless forced. */
+  async function checkUpdate(api, now, force) {
+    const cached = await readJson(UPDATE_PATH);
+    const age = cached && typeof cached.checkedAt === 'number' ? now - cached.checkedAt : -1;
+    if (!force && age >= 0 && age < DAY_MS) return cached;
+    const catalog = JSON.parse(await fetchText(api, HUB_CATALOG, HUB_TMP));
+    const entry = ((catalog && catalog.plugins) || []).find((p) => p && p.name === 'cp-orbit') || {};
+    const releaseUrl = String(entry.release_url || '');
+    const info = { checkedAt: now, version: String(entry.version || ''), releaseUrl: /^https:\/\/github\.com\//.test(releaseUrl) ? releaseUrl : '' };
+    await writeJson(api, UPDATE_PATH, info);
+    return info;
+  }
+
+  /** A small element builder bound to the card's document. */
+  function builder(doc) {
+    return (tag, attrs, ...kids) => {
       const node = doc.createElement(tag);
       for (const [k, v] of Object.entries(attrs || {})) {
         if (k === 'class') node.className = v;
@@ -1243,12 +1483,76 @@
       for (const kid of kids.flat()) if (kid !== null && kid !== undefined) node.append(typeof kid === 'string' ? doc.createTextNode(kid) : kid);
       return node;
     };
+  }
+
+  /** Saves the problem report as a .txt file in the browser. */
+  async function downloadLog(doc, api, log, secrets) {
+    const text = await buildReport(api, log, secrets);
+    const d = new Date();
+    const a = doc.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    a.download = 'cp-orbit-log-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '.txt';
+    doc.body.appendChild(a);
+    if (typeof a.click === 'function') a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    return text;
+  }
+
+  /** Opens a prefilled GitHub issue; the user attaches the downloaded log there. */
+  async function reportProblem(log) {
+    const st = await fetch('/api/status')
+      .then((r) => r.json())
+      .catch(() => ({}));
+    const url = issueUrl(st, logStats(await log.text()).lastMessage);
+    if (typeof window !== 'undefined' && window.open) window.open(url, '_blank', 'noopener');
+    return url;
+  }
+
+  /** What the card shows when it cannot draw itself: enough to report the problem. */
+  function renderFallback(container, api, log, secrets, error) {
+    const doc = container.ownerDocument || document;
+    const el = builder(doc);
+    const msg = el('p', { class: 'cp-orbit-msg', style: 'color:#c0392b' }, 'The BookOrbit card could not load: ' + redact(error && error.message, secrets.cfg, secrets.deviceId) + ' Download the log and attach it to a problem report.');
+    const action = (label, fn) => el('button', { class: 'btn-small', type: 'button', onclick: () => fn().catch(() => {}) }, label);
+    container.replaceChildren(
+      el('h2', {}, 'BookOrbit ', el('small', { style: 'font-weight:normal;opacity:.7' }, 'v' + VERSION)),
+      msg,
+      el('div', { class: 'setting-row' }, action('Download log', () => downloadLog(doc, api, log, secrets)), ' ', action('Report a problem', () => reportProblem(log)))
+    );
+  }
+
+  // --------------------------------------------------------------------- UI
+
+  function render(container, api) {
+    const secrets = { cfg: null, deviceId: '' }; // what the log must redact, filled in as the card learns it
+    const log = createLog(api, secrets);
+    trapErrors(log);
+    try {
+      return renderCard(container, api, log, secrets);
+    } catch (e) {
+      log.add('ERROR', 'render', e);
+      renderFallback(container, api, log, secrets, e);
+      return undefined;
+    }
+  }
+
+  function renderCard(container, api, log, secrets) {
+    const doc = container.ownerDocument || document;
+    const el = builder(doc);
     const row = (label, control) => el('div', { class: 'setting-row' }, el('span', { class: 'setting-name' }, label), el('span', { class: 'setting-control' }, control));
     const say = (node, text, kind) => {
       node.textContent = text;
       node.style.color = kind === 'error' ? '#c0392b' : kind === 'ok' ? '#1e8449' : '';
     };
     const confirmFn = (q) => (typeof window !== 'undefined' && window.confirm ? window.confirm(q) : true);
+    // Shows the error; logs it unless it is about what the user entered. A refused login is a warning, not a fault.
+    const fail = (node, op, e, context) => {
+      say(node, e.message, 'error');
+      if (e.expected) return;
+      log.add(e.status === 401 || e.status === 403 ? 'WARN' : 'ERROR', op, e, context);
+      showLogStats();
+    };
 
     const f = {
       // type=text so the reader's stylesheet sizes it like the other fields; inputmode keeps the URL keyboard.
@@ -1262,6 +1566,10 @@
     const setupMsg = el('p', { class: 'cp-orbit-msg' });
     const shelfMsg = el('p', { class: 'cp-orbit-msg' });
     const bookMsg = el('p', { class: 'cp-orbit-msg' });
+    const bookProblems = el('details', { style: 'display:none' });
+    const logMsg = el('p', { class: 'cp-orbit-msg' });
+    const updateMsg = el('p', { class: 'cp-orbit-msg' });
+    const updateBox = el('div', { class: 'cp-orbit-update', style: 'display:none;border:1px solid #1e8449;border-radius:6px;padding:8px 12px;margin:8px 0' });
     const bookSelect = el('select', {});
     const otherPath = el('input', { type: 'text', placeholder: '/Books/Author/Title.epub', style: 'display:none' });
     const statusSelect = el('select', {}, el('option', { value: '' }, '—'), STATUSES.map(([v, label]) => el('option', { value: v }, label)));
@@ -1290,11 +1598,11 @@
       const server = normalizeServer(f.server.value);
       const user = f.user.value.trim();
       const password = f.password.value;
-      if (!server) throw new Error('Enter the BookOrbit server address, for example http://192.168.1.50:3000.');
-      if (!user) throw new Error('Enter your BookOrbit KOReader sync username.');
-      if (!password && !(cfg && cfg.key)) throw new Error('Enter your KOReader sync password.');
+      if (!server) throw userError('Enter the BookOrbit server address, for example http://192.168.1.50:3000.');
+      if (!user) throw userError('Enter your BookOrbit KOReader sync username.');
+      if (!password && !(cfg && cfg.key)) throw userError('Enter your KOReader sync password.');
       const dest = f.dest.value.trim().replace(/\/+$/, '');
-      if (dest && (!dest.startsWith('/') || dest.includes('..'))) throw new Error('The download folder must be an absolute path like /Books/BookOrbit.');
+      if (dest && (!dest.startsWith('/') || dest.includes('..'))) throw userError('The download folder must be an absolute path like /Books/BookOrbit.');
       return {
         cfg: { server, user, key: password ? md5(password) : cfg.key, device_id: (cfg && cfg.device_id) || '', dest_dir: dest || DEFAULT_DEST },
         password,
@@ -1302,7 +1610,7 @@
     };
 
     const requireConfig = () => {
-      if (!cfg || !cfg.server || !cfg.key) throw new Error('Save your BookOrbit connection first.');
+      if (!cfg || !cfg.server || !cfg.key) throw userError('Save your BookOrbit connection first.');
       return cfg;
     };
 
@@ -1310,7 +1618,7 @@
       try {
         const st = await (await fetch('/api/status?plugin=cp-orbit')).json();
         if (st && st.device) cap = /^picco$/i.test(st.device) ? 1024 : 256; // ESP32-S3 boards keep 1024 per book
-        if (st && /^[A-Za-z0-9_-]{1,100}$/.test(st.deviceId || '')) return st.deviceId;
+        if (st && /^[A-Za-z0-9_-]{1,100}$/.test(st.deviceId || '')) return (secrets.deviceId = st.deviceId);
       } catch (e) {
         /* fall through */
       }
@@ -1326,7 +1634,7 @@
         const r = await testConnection(boClient(api, next));
         say(setupMsg, 'Connected' + (r.username ? ' as ' + r.username : '') + (r.serverVersion ? ' (BookOrbit ' + r.serverVersion + ')' : '') + '.', 'ok');
       } catch (e) {
-        say(setupMsg, e.message, 'error');
+        fail(setupMsg, 'test-connection', e);
       }
     }
 
@@ -1337,7 +1645,7 @@
         await testConnection(boClient(api, next));
         next.device_id = next.device_id || (await deviceId());
         await writeJson(api, CONFIG_PATH, next);
-        cfg = next;
+        cfg = secrets.cfg = next;
         f.password.value = '';
         f.password.placeholder = 'Saved (leave empty to keep)';
         let text = 'Saved.';
@@ -1347,13 +1655,16 @@
           else {
             text += ' Reader progress sync now uses BookOrbit (binary matching, ' + (f.ask.value === 'ask' ? 'asks when positions differ' : 'furthest position wins') + ', clipping sync off).';
             if (k.passwordKept) text += ' Enter the password again to update it on the reader too.';
-            if (k.skipped.length) text += ' Not set on this firmware: ' + k.skipped.join(', ') + '.';
+            if (k.skipped.length) {
+              text += ' Not set on this firmware: ' + k.skipped.join(', ') + '.';
+              log.add('WARN', 'save', 'Reader sync settings this firmware does not offer: ' + k.skipped.join(', '));
+            }
           }
         }
         say(setupMsg, text, 'ok');
         await refreshShelves(next);
       } catch (e) {
-        say(setupMsg, e.message, 'error');
+        fail(setupMsg, 'save', e);
       }
     }
 
@@ -1361,9 +1672,12 @@
     async function refreshShelves(c) {
       try {
         say(shelfMsg, 'Checking your libraries, collections and SmartScopes…');
-        say(shelfMsg, describeShelves(await syncShelves(api, boClient(api, c))), 'ok');
+        const r = await syncShelves(api, boClient(api, c));
+        if (r.dropped) log.add('WARN', 'shelves', r.dropped + ' catalog list(s) did not fit in device.json\'s 8KB limit.');
+        say(shelfMsg, describeShelves(r), 'ok');
       } catch (e) {
         const restored = await restoreShelves(api).catch(() => 0);
+        log.add('WARN', 'shelves', e, { kept: restored ? restored + ' list(s) restored from shelves.json' : 'nothing to restore' });
         if (restored) say(shelfMsg, 'Could not update the lists from BookOrbit, so the last known ones were kept (' + restored + '). ' + e.message, 'ok');
         else say(shelfMsg, 'Could not update the catalog lists: ' + e.message, 'error');
       }
@@ -1371,7 +1685,7 @@
 
     const selectedBook = () => {
       const path = bookSelect.value === '__other' ? otherPath.value.trim() : bookSelect.value;
-      if (!path) throw new Error('Choose a book.');
+      if (!path) throw userError('Choose a book.');
       const opt = bookSelect.selectedOptions && bookSelect.selectedOptions[0];
       return { path, title: (opt && opt.dataset && opt.dataset.title) || '', author: (opt && opt.dataset && opt.dataset.author) || '' };
     };
@@ -1379,42 +1693,66 @@
     const bookBytes = async (path) => {
       if (current.path !== path || !current.bytes) {
         const bytes = await readBytes(path);
-        if (!bytes) throw new Error('Book not found on the SD card: ' + path);
+        if (!bytes) throw userError('Book not found on the SD card: ' + path);
         current = { path, bytes, bookId: null };
       }
       return current.bytes;
     };
 
+    // Lists the highlights a sync could not place or send, under "Show which", and logs them as a warning.
+    function showProblems(entries) {
+      const all = entries.flatMap(({ book, problems }) => (problems || []).map((p) => Object.assign({ book }, p)));
+      bookProblems.style.display = all.length ? '' : 'none';
+      bookProblems.replaceChildren(
+        el('summary', {}, 'Show which (' + all.length + ')'),
+        el('ul', {}, all.map((p) => el('li', {}, (entries.length > 1 ? (p.book.title || p.book.path) + ': ' : '') + '“' + p.text + '” from ' + (p.from === 'reader' ? 'the reader' : 'BookOrbit') + ': ' + p.reason + '.')))
+      );
+      for (const { book, problems } of entries) {
+        if (!problems || !problems.length) continue;
+        const detail = problems.map((p) => '  from ' + p.from + ': ' + p.reason + ' | "' + p.text + '"' + (p.chapter ? ' | chapter "' + p.chapter + '"' : '') + (p.pos0 ? ' | ' + p.pos0 + ' -> ' + p.pos1 : '')).join('\n');
+        log.add('WARN', 'sync-highlights', problems.length + ' highlight(s) could not be synced', { book: book.path, highlights: '\n' + detail });
+      }
+      showLogStats();
+    }
+
     async function onSyncBook() {
+      let book = null;
+      showProblems([]);
       try {
         const c = requireConfig();
-        const book = selectedBook();
+        book = selectedBook();
         const r = await syncHighlights({ api, cfg: c, bo: boClient(api, c), cap }, book, (t) => say(bookMsg, t));
         say(bookMsg, describeSync(r), r.unmatched || r.incompatible ? 'error' : 'ok');
+        showProblems([{ book, problems: r.problems }]);
       } catch (e) {
-        say(bookMsg, e.message, 'error');
+        fail(bookMsg, 'sync-highlights', e, { book: book && book.path });
       }
     }
 
     async function onSyncAll() {
+      showProblems([]);
       try {
         const c = requireConfig();
         const books = Array.from(bookSelect.options).filter((o) => o.value && o.value !== '__other');
         const lines = [];
+        const results = [];
         for (const [i, o] of books.entries()) {
           const book = { path: o.value, title: o.dataset.title || '', author: o.dataset.author || '' };
           try {
             const r = await syncHighlights({ api, cfg: c, bo: boClient(api, c), cap }, book, (t) => say(bookMsg, '(' + (i + 1) + '/' + books.length + ') ' + (book.title || book.path) + ': ' + t));
             lines.push((book.title || book.path) + ': ' + describeSync(r));
+            results.push({ book, problems: r.problems });
           } catch (e) {
             if (e.status === 401 || e.status === 403) throw e;
+            if (!e.expected) log.add('ERROR', 'sync-highlights', e, { book: book.path });
             lines.push((book.title || book.path) + ': ' + e.message);
           }
         }
         say(bookMsg, lines.join('\n') || 'No recent books.', 'ok');
         bookMsg.style.whiteSpace = 'pre-line';
+        showProblems(results);
       } catch (e) {
-        say(bookMsg, e.message, 'error');
+        fail(bookMsg, 'sync-highlights', e);
       }
     }
 
@@ -1425,7 +1763,7 @@
         const { path } = selectedBook();
         say(bookMsg, 'Looking the book up in BookOrbit…');
         const id = await bookIdFor({ bo, cfg: c }, path, () => bookBytes(path));
-        if (!id) throw new Error('BookOrbit does not have this exact file.');
+        if (!id) throw userError('BookOrbit does not have this exact file.');
         const detail = await bo.get(CATALOG + '/books/' + id);
         current.path = path;
         current.bookId = id;
@@ -1434,7 +1772,7 @@
         statusBox.style.display = '';
         say(bookMsg, (detail && detail.title ? detail.title + ': ' : '') + 'change the status or rating, then press Save status & rating.', 'ok');
       } catch (e) {
-        say(bookMsg, e.message, 'error');
+        fail(bookMsg, 'show-status', e);
       }
     }
 
@@ -1442,13 +1780,63 @@
       try {
         const c = requireConfig();
         const { path } = selectedBook();
-        if (current.path !== path || !current.bookId) throw new Error('Press Show status & rating for this book first.');
+        if (current.path !== path || !current.bookId) throw userError('Press Show status & rating for this book first.');
         const bo = boClient(api, c);
         if (statusSelect.value) await bo.put(CATALOG + '/books/' + current.bookId + '/read-status', { status: statusSelect.value });
         await bo.put(CATALOG + '/books/' + current.bookId + '/rating', { rating: ratingSelect.value ? Number(ratingSelect.value) : null });
         say(bookMsg, 'Status and rating saved to BookOrbit.', 'ok');
       } catch (e) {
-        say(bookMsg, e.message, 'error');
+        fail(bookMsg, 'save-status', e);
+      }
+    }
+
+    async function showLogStats() {
+      const s = logStats(await log.text());
+      if (!s.count) say(logMsg, 'No problems logged.');
+      else say(logMsg, plural(s.count, 'problem', 'problems') + ' logged, the last at ' + new Date(s.lastTime).toLocaleString() + '.');
+    }
+
+    async function onDownloadLog() {
+      try {
+        await downloadLog(doc, api, log, secrets);
+        say(logMsg, 'Log saved. Attach it to the problem report on GitHub.', 'ok');
+      } catch (e) {
+        say(logMsg, 'Could not save the log: ' + e.message, 'error');
+      }
+    }
+
+    async function onClearLog() {
+      if (!confirmFn('Clear the problem log?')) return;
+      await log.clear();
+      await showLogStats();
+    }
+
+    function showUpdate(info) {
+      if (!info || !isNewer(info.version, VERSION)) {
+        updateBox.style.display = 'none';
+        say(updateMsg, 'You have the newest version (' + VERSION + ').');
+        return;
+      }
+      updateBox.style.display = '';
+      updateBox.replaceChildren(
+        el('strong', {}, 'cp-orbit ' + info.version + ' is available.'),
+        ' Update it on the reader: Home → Plugins → Plugin Hub → BookOrbit → Update. No Plugin Hub yet? Home → Plugins → Plugin Hub → Install. Your settings are kept and no restart is needed. ',
+        info.releaseUrl ? el('a', { href: info.releaseUrl, target: '_blank', rel: 'noopener' }, 'What\'s new') : null,
+        ' ',
+        el('button', { class: 'btn-small', type: 'button', onclick: () => window.location.reload() }, 'Reload page')
+      );
+      say(updateMsg, 'cp-orbit ' + info.version + ' is available; you have ' + VERSION + '.', 'ok');
+    }
+
+    async function onCheckUpdate(force) {
+      try {
+        if (force) say(updateMsg, 'Checking Plugin Hub…');
+        showUpdate(await checkUpdate(api, Date.now(), force));
+      } catch (e) {
+        if (!force) return; // a reader without internet (hotspot mode) would log this on every page load
+        log.add('WARN', 'update-check', e);
+        say(updateMsg, 'Could not check for updates: ' + e.message, 'error');
+        showLogStats();
       }
     }
 
@@ -1459,6 +1847,7 @@
 
     container.replaceChildren(
       el('h2', {}, 'BookOrbit ', el('small', { style: 'font-weight:normal;opacity:.7' }, 'v' + VERSION)),
+      updateBox,
       el('h3', {}, 'Connection'),
       row('Server', f.server),
       row('KOReader sync username', f.user),
@@ -1472,16 +1861,24 @@
       el('p', {}, 'Your libraries, collections and SmartScopes appear in Home → Plugins → BookOrbit on the reader. They follow BookOrbit automatically each time this page opens; empty ones are hidden.'),
       shelfMsg,
       el('h3', {}, 'Highlights, status and rating'),
+      el('p', {}, 'The reader never syncs highlights by itself. Make them in a book with Clip (Bookmark only marks the page), then press Sync highlights here. It also brings BookOrbit\'s highlights to the reader.'),
       row('Book', el('span', {}, bookSelect, otherPath)),
       el('div', { class: 'setting-row' }, button('Sync highlights', onSyncBook), ' ', button('Sync all recent books', onSyncAll), ' ', button('Show status & rating', onLoadStatus)),
       statusBox,
       el('div', { class: 'setting-row' }, button('Save status & rating', onSaveStatus)),
-      bookMsg
+      bookMsg,
+      bookProblems,
+      el('h3', {}, 'Updates and problems'),
+      el('div', { class: 'setting-row' }, button('Check for updates', () => onCheckUpdate(true))),
+      updateMsg,
+      el('p', {}, 'Errors and warnings are saved on the reader. To report a problem, download the log and attach it to a GitHub issue. The log leaves out your password, key, username and server address, but it does include book file paths and the start of any highlight that could not be synced.'),
+      el('div', { class: 'setting-row' }, button('Download log', onDownloadLog), ' ', button('Report a problem', () => reportProblem(log)), ' ', button('Clear log', onClearLog)),
+      logMsg
     );
 
     return (async () => {
       try {
-        cfg = await readJson(CONFIG_PATH);
+        cfg = secrets.cfg = await readJson(CONFIG_PATH);
         if (cfg) {
           f.server.value = cfg.server || '';
           f.user.value = cfg.user || '';
@@ -1506,8 +1903,10 @@
         if (cfg) await deviceId();
         if (cfg && cfg.server && cfg.key) await refreshShelves(cfg);
       } catch (e) {
-        say(setupMsg, e.message, 'error');
+        fail(setupMsg, 'load', e);
       }
+      await onCheckUpdate(false);
+      await showLogStats();
     })();
   }
 
@@ -1528,6 +1927,7 @@
     visibleAt,
     visibleSlice,
     findText,
+    sameText,
     openEpub,
     planUpload,
     applyRemote,
@@ -1542,6 +1942,16 @@
     describeShelves,
     normalizeServer,
     deviceDatetime,
+    redact,
+    createLog,
+    logStats,
+    buildReport,
+    issueUrl,
+    isNewer,
+    checkUpdate,
+    LOG_PATH,
+    UPDATE_PATH,
+    HUB_CATALOG,
     render,
   };
   if (typeof globalThis !== 'undefined' && globalThis.__CP_ORBIT_TEST__) globalThis.__CP_ORBIT_TEST__.lib = lib;

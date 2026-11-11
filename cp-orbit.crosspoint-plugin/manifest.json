@@ -3,7 +3,7 @@
   "title": "BookOrbit",
   "description": "Your BookOrbit library on CrossPoint: browse and download books, sync reading progress, reading sessions, highlights, status and ratings.",
   "author": "ngocmanh1609",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "mount": "settings",
   "compatibility": {
     "firmware_family": ["crosspoint"],

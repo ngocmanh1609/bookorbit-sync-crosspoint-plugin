@@ -13,7 +13,7 @@ ships as written.
 
 ```bash
 npm ci                     # dev deps only: jszip, linkedom
-npm test                   # node --test tests/*.test.mjs (34 tests, no network)
+npm test                   # node --test tests/*.test.mjs (49 tests, no network)
 node --test tests/core.test.mjs                                   # one file
 node --test --test-name-pattern="sync:" tests/core.test.mjs       # tests whose name matches
 sh scripts/package.sh      # -> dist/cp-orbit-<version>.zip containing one cp-orbit/ folder
@@ -29,7 +29,7 @@ plugin from that Release; the repo also needs the GitHub topic `crosspoint-plugi
 | Skill | Use it for | Script |
 |---|---|---|
 | `release` | Shipping a version | `scripts/bump-version.mjs` updates all three version spots and creates the release-notes stub. The skill covers the CI-gated tag and the GitHub auth quirks. |
-| `deploy-to-picco` | Putting this checkout on the reader over Wi-Fi | `scripts/deploy.sh <reader-ip> [files]` (`DRY_RUN=1` prints the requests). The skill says when a restart is needed. |
+| `deploy-to-picco` | Putting this checkout on the reader over Wi-Fi | `scripts/deploy.sh <reader-ip> [files]` (`DRY_RUN=1` prints the requests). The skill says what to do next; no restart on 2.0.0. |
 | `readme-media` | Regenerating `docs/images/` | `scripts/web-card.mjs` (real web-card recording) and `scripts/illustrate.mjs` (illustrated Picco screens and GIF). Both need Chrome, ffmpeg and `gh`. |
 
 ## Architecture
@@ -51,6 +51,30 @@ The plugin has two halves, because CrossPoint plugins cannot run code on the rea
   - **Same-origin endpoints it uses:** `/download?path=`, `/api/settings`, `/api/status?plugin=cp-orbit`.
   - **Fallback:** `boClient` switches to `fetchToSd` when a relay answer is over the cap. That only works for
     request bodies of 4KB or less.
+  - **Crash guard:** `render` wraps `renderCard` in a try/catch. A throw logs `ERROR render` and draws
+    `renderFallback` (Download log / Report a problem). Without it, plugin-host shows only "Failed to load plugin".
+  - **No restart:** the firmware has no restart route, and 2.0.0 needs none after an update. Event delivery re-reads
+    `device.json`, and the event table is rebuilt when File Transfer ends, when Home → Plugins opens, and after a Hub
+    install.
+
+**Problem log** (`createLog`, `/.cp-orbit/logs/cp-orbit.log`):
+- **Format:** plain-text entries that start with `--- <ISO time> <LEVEL> <op> (cp-orbit <ver>)`. The file is capped
+  at 64KB (oldest entries go first), and writes are debounced to 1s. A failed write never throws.
+- **What gets logged:**
+  - Handler catches go through `fail(node, op, e)`.
+  - Errors made with `userError()` (bad input, wrong book) are shown but never logged; 401/403 are logged as WARN.
+  - `trapErrors` logs `error`/`unhandledrejection` events only when the stack or filename contains
+    `name=cp-orbit&file=plugin.js`.
+  - BookOrbit errors carry `err.request` (method, path without host, status, first 300 characters of the answer).
+- **Redaction:** `redact()` swaps `cfg.key`, `cfg.server` (origin, host, hostname), `cfg.user` (3 characters or more,
+  whole word) and the device ID for placeholders. It runs on every entry and again on the downloaded report
+  (`buildReport`), which never prints `/api/status` `serial`.
+
+**Update notice** (`checkUpdate`): it reads the **Plugin Hub catalog** (`HUB_CATALOG`), not GitHub releases, so the
+banner never offers a version the Hub can't install yet. The result is cached in `/.cp-orbit/update.json` for a day.
+A failed automatic check stays silent, because hotspot mode has no internet; only **Check for updates** logs it.
+Updating itself is Plugin Hub's bundle install, which updates `/plugins/cp-orbit` in place and keeps
+`events.jsonl`.
 
 BookOrbit auth is header-only: `x-auth-user` plus `x-auth-key`, the MD5 of the KOReader-sync password. There is no
 token flow, so `device.json` has no `token`/`auth` block.
@@ -70,6 +94,7 @@ keeps it:
   - **Writes:** it rewrites `device.json` only when the lists change.
 - `state/<partialMd5>.json`: highlight sync state.
 - `backup/`: copies of the reader's highlight file.
+- `logs/cp-orbit.log`: the problem log. `update.json`: the last Plugin Hub check.
 
 **Progress sync is the firmware's own KOSync, not plugin code.** Save on the card calls `POST /api/settings`
 (`applyKosync`) with these values:
@@ -103,6 +128,10 @@ sources:
    - **Requests:** the first request sends all keys, `k = md5(datetime|pos0)`, plus up to 50 changes per request.
    - **Applying:** remote changes are written to the `.bin` **before** the `exchange-ack`. A failed placement is acked
      as `status: failed`, never placed by guessing.
+   - **Failure reasons:** each one carries a `WHY.*` reason. `summary.problems` lists them, and the card shows them
+     under "Show which".
+   - **Text matching:** `MATCH_MODES` runs plain, then folded, then folded + compact. Compact ignores whitespace,
+     because KOReader joins paragraphs with `\n` while compact XHTML has nothing between blocks.
    - **Distrusting saved state:** state is ignored when the book path changed or the store is missing. The exchange
      then sends `sidecarState: 'new'`, so BookOrbit deletes nothing.
    - **Datetimes:** they come from the record timestamp, stay unique per book, and are persisted in state.
@@ -124,9 +153,12 @@ Book identity everywhere is KOReader's **partial MD5**: 1 KiB at 0 and at 1024·
   `README.md` at 16KB or less. `manifest.json` `files` must list exactly the payload files.
 - **Book formats:** the catalog filters `format=epub`, because the reader opens only EPUB/TXT/MD/XTC and
   `download.filename` is fixed to `.epub`.
-- **Test DOM:** tests run `plugin.js` in `node:vm` with linkedom (`tests/helpers.mjs`). linkedom lacks
-  `checkbox.checked` and `select.value`, so the harness shims them. Don't work around this in `plugin.js`.
-  Objects coming out of the sandbox need `plain()` before `deepStrictEqual`.
+- **Test DOM:** tests run `plugin.js` in `node:vm` with linkedom (`tests/helpers.mjs`).
+  - **Shims:** linkedom lacks `checkbox.checked` and `select.value`, so the harness shims them. Don't work around
+    this in `plugin.js`.
+  - **Cross-realm objects:** objects coming out of the sandbox need `plain()` before `deepStrictEqual`.
+  - **Timers:** the sandbox's `setTimeout` is unref'd. Tests flush the log through `log.text()` or **Download log**.
+  - **Web routes:** `fakeReader({ web })` answers GitHub URLs, such as the Hub catalog.
 - **Mock server:** `tests/mock-bookorbit.mjs` models BookOrbit's DTO validation and exchange rules. Keep it aligned
   with the server source when behaviour changes.
 - **README images:** the on-reader images (`picco-*.png/gif`) are **illustrations**, labelled as such. The web-card

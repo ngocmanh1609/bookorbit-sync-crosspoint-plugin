@@ -123,6 +123,6 @@ gh repo view ngocmanh1609/bookorbit-sync-crosspoint-plugin --json repositoryTopi
 
 ## Tell the user
 
-Give the release URL, the zip name and size, and whether the tests and release workflows passed. If anything changed
-in `device.json`, say so: readers need a restart after updating. Remind them to update their own reader, using the
-`deploy-to-picco` skill.
+Give the release URL, the zip name and size, and whether the tests and release workflows passed. Readers update through
+Plugin Hub on the reader once its catalog refreshes (a few times a day), with no restart. Remind them to update their
+own reader, through Plugin Hub or the `deploy-to-picco` skill.

@@ -37,8 +37,8 @@ if (!existsSync(notes)) {
 
 ## Update
 
-Use **Sync progress** on the reader, copy the new \`cp-orbit\` folder over the old one, then turn the reader off and on.
-Settings are kept in \`/.cp-orbit/\`.
+On the reader: **Home → Plugins → Plugin Hub → BookOrbit → Update**. Or use **Sync progress**, then copy the new
+\`cp-orbit\` folder over the old one. No restart is needed. Settings are kept in \`/.cp-orbit/\`.
 `);
   console.log('created', notes);
 }

@@ -53,9 +53,11 @@ BookOrbit's [KOReader plugin](https://bookorbit.app/koreader-plugin), rebuilt as
 **On the reader's web page**, from a phone or computer on the same Wi-Fi
 
 - **One-time setup:** enter your login once. The plugin also configures the reader's own progress sync for you.
-- **Two-way highlights:** new highlights and deletions go both ways. Every highlight is placed by its position and
-  checked against the book's text.
+- **Two-way highlights:** new highlights and deletions go both ways when you press **Sync highlights** (the reader
+  never syncs them by itself). Every highlight is placed by its position and checked against the book's text.
 - **Read status and star rating** for any book.
+- **Update notice and problem log:** a banner when Plugin Hub has a new version, and a log you can attach to a
+  GitHub issue.
 
 </td>
 <td width="50%" valign="top" align="center">
@@ -74,8 +76,11 @@ You need CrossPoint 2.0.0 or newer, a BookOrbit server the reader can reach, and
    [latest release](https://github.com/ngocmanh1609/bookorbit-sync-crosspoint-plugin/releases/latest) and unzip it.
 2. Copy the `cp-orbit` folder to `/plugins/` on the reader's SD card, giving `/plugins/cp-orbit/`. Keep that folder
    name: the reader only sends reading sessions to plugin folders named 23 bytes or less.
-3. On the reader, turn on **Settings → Connectivity → Plugins**. Then turn the reader **off and on** (hold Power for
-   about half a second, twice).
+3. On the reader, turn on **Settings → Connectivity → Plugins**, then open **Home → Plugins** once. No restart is
+   needed; turning the reader off and on also works.
+
+Or skip the copying: on the reader, open **Home → Plugins → Plugin Hub** (choose **Install** the first time), find
+**BookOrbit** and install it from there.
 
 <details>
 <summary>No card reader? Copy it over Wi-Fi instead</summary>
@@ -144,16 +149,46 @@ Sending one twice is harmless, because BookOrbit drops duplicates.
 
 ### Highlights
 
-On the card, pick a book and press **Sync highlights**, or **Sync all recent books** to do every book in the reader's
-recent list:
+> [!IMPORTANT]
+> **The reader never syncs highlights by itself.** A highlight you make on the reader stays only on the reader until
+> you press **Sync highlights** on the BookOrbit card. Highlights made in BookOrbit or KOReader reach the reader the
+> same way.
+
+To sync your highlights:
+
+1. In a book, select a word or a passage and choose **Clip**. That is the highlight. **Bookmark** only marks the page
+   and is not synced, and CrossPoint has no notes.
+2. On the reader, open **File Transfer**. Open the address it shows in a browser on a phone or computer, then go to
+   the **Plugins** tab.
+3. On the BookOrbit card, choose the book and press **Sync highlights**. **Sync all recent books** does every book in
+   the reader's recent list.
+4. Read the result line. If some highlights could not be synced, **Show which** lists each one and the reason.
+
+What a sync does:
 
 - New highlights on the reader go to BookOrbit, and open at the right spot in BookOrbit's web reader.
-- New highlights from BookOrbit are added to the reader. One that can't be found in the book is reported, never
-  placed by guessing.
+- New highlights from BookOrbit are added to the reader. One that can't be placed is listed under **Show which**,
+  never placed by guessing.
 - Deleting a highlight on either side deletes it on the other at the next sync.
+- Notes written in BookOrbit or KOReader stay there. The reader can't show them.
 
 The book must be the same file BookOrbit has; books downloaded through the catalog always are. Before every change,
 the reader's highlight file is backed up to `/.cp-orbit/backup/`.
+
+<details>
+<summary>Why a highlight can't be synced</summary>
+
+| Reason under **Show which** | What it means |
+|---|---|
+| it spans two chapters | The reader keeps each highlight inside one chapter. Split it at the chapter break on the other device. |
+| its text was not found in the chapter | The book's text at that spot is different, usually because it is another edition of the book. |
+| its text appears more than once in the chapter | Its position didn't match, and the text alone (often a single word) fits several places. |
+| its position is not in this book | The position points outside this book's chapters, so it belongs to another file. |
+| the reader's highlight limit for this book is reached | The Picco keeps up to 1024 highlights per book. |
+| the reader does not have it | BookOrbit sent a change for a highlight that was deleted on the reader. |
+| not an EPUB position | The highlight was made in a PDF copy of the book. |
+
+</details>
 
 ### Catalog lists: libraries, collections and SmartScopes
 
@@ -200,37 +235,67 @@ rating**.
 | Book | The book the buttons below work on: a recent book, or **Another book** to type a path. |
 | **Sync highlights** | Two-way highlight sync for that book. |
 | **Sync all recent books** | Sync highlights for every recent book, with a result line for each. |
+| Show which | Appears after a sync when some highlights couldn't be synced, and lists each one with the reason. |
 | **Show status & rating** | Shows the book's current status and rating. Changes nothing. |
 | **Save status & rating** | Sends the status and rating shown to BookOrbit. |
+| **Check for updates** | Asks Plugin Hub for a newer cp-orbit right away. The card also checks by itself once a day. |
+| **Download log** | Saves the problem log, with a summary of the reader's setup, as a text file. |
+| **Report a problem** | Opens a new GitHub issue with your versions filled in. Attach the downloaded log to it. |
+| **Clear log** | Empties the problem log. |
 
 </details>
 
 ## Updating
 
-1. Use **Sync progress**, or just connect the reader to Wi-Fi, so queued reading sessions go out first.
-2. Copy the new `cp-orbit` folder over the old one ("Replace" is fine), then turn the reader off and on.
+**On the reader (recommended):** open **Home → Plugins → Plugin Hub → BookOrbit** and choose **Update**. If Plugin
+Hub isn't there yet, choose **Home → Plugins → Plugin Hub → Install** first. The card on the web page shows a banner
+when an update is out. The banner waits until Plugin Hub can install the update, because the Hub refreshes its list a
+few times a day.
 
-Your settings and sync state live in `/.cp-orbit/`, outside the plugin folder, so you never re-enter them. Until
-you next open the card, the catalog shows your libraries but not your collections or SmartScopes. Opening the card
-puts them back. Deleting `/.cp-orbit/` resets the plugin.
+**By hand:** use **Sync progress** (or connect the reader to Wi-Fi) so queued reading sessions go out first. Then copy
+the new `cp-orbit` folder over the old one ("Replace" is fine). A "Replace" deletes sessions that haven't been sent
+yet; Plugin Hub keeps them.
+
+Either way, **no restart is needed** on CrossPoint 2.0.0, because the reader reads the new files the next time it uses
+them. If you copied the files over Wi-Fi, just leave File Transfer. Reload the web page if it was open.
+
+Your settings, sync state and problem log live in `/.cp-orbit/`, outside the plugin folder, so you never re-enter
+them. Until you next open the card, the catalog shows your libraries but not your collections or SmartScopes. Opening
+the card puts them back. Deleting `/.cp-orbit/` resets the plugin.
+
+## Reporting a problem
+
+The card saves its errors and warnings to `/.cp-orbit/logs/cp-orbit.log` on the reader. To report a problem:
+
+1. On the card, under **Updates and problems**, press **Download log**. The browser saves `cp-orbit-log-<date>.txt`.
+2. Press **Report a problem**. A new GitHub issue opens with your versions filled in.
+3. Describe what happened, and drag the log file into the issue.
+
+The log leaves out your password, key, username, server address and device ID. It does include book file paths and
+the start of any highlight that couldn't be synced, so read it before posting. Problems on the reader itself
+(catalog, downloads, progress sync) only reach the reader's serial port, not this log, so describe those in the issue.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
+| **My highlight isn't in BookOrbit** | The reader never sends highlights by itself. Make it with **Clip** (not Bookmark), then press **Sync highlights** on the card. See [Highlights](#highlights). |
+| **"… from BookOrbit could not be placed in this book"** | Press **Show which** under the result to see each highlight and why. Most often it spans two chapters, or the book is a different file from BookOrbit's. |
 | **"Sync failed. Could not sync clippings"** | The reader's clipping sync is on, and BookOrbit doesn't support it. Untick **Settings → Connectivity → CrossPoint Sync → Sync Clippings**, or press **Save** on the card again. |
 | The Picco isn't in BookOrbit's **Devices** list | That list only shows devices that have uploaded a position. Use **Sync progress** and choose **Upload local progress**. The reader appears as **"CrossPoint"**, a name fixed in the firmware. |
 | The catalog shows an error | Set up the card first, and check that the reader can reach the server address. |
-| A new collection or SmartScope is missing | Open the card's web page once; it updates the lists. Empty ones (no books) are hidden. |
-| No reading sessions in BookOrbit | The folder must be `/plugins/cp-orbit`. Turn the reader off and on after installing, and make sure the reader shows the correct time. |
+| A collection or SmartScope is missing, or all of them after an update | Open the card's web page once; it updates the lists. Empty ones (no books) are hidden. |
+| No reading sessions in BookOrbit | The folder must be `/plugins/cp-orbit`. After installing, open **Home → Plugins** once (or restart the reader), and make sure the reader shows the correct time. |
 | A downloaded book won't open | That book's first file in BookOrbit isn't an EPUB (see [known issues](KNOWN_ISSUES.md)). |
+| Anything else | [Report a problem](#reporting-a-problem) with the log attached. |
 
 ## What CrossPoint can't do
 
 CrossPoint plugins can't draw their own screens or run code on the reader, and their catalogs have one level of
 lists, so collections and SmartScopes can't be folders (see [Catalog lists](#catalog-lists-libraries-collections-and-smartscopes)).
 The KOReader plugin's dashboard, widgets, covers, bulk download and bookmark sync therefore have no equivalent.
-Progress never syncs on its own; you start it with Sync progress. All limits are listed in
+Progress and highlights never sync on their own: you start progress with Sync progress, and highlights from the card.
+A plugin also can't restart the reader, and an update doesn't need a restart. All limits are listed in
 [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Security
@@ -251,8 +316,9 @@ npm test
 sh scripts/package.sh
 ```
 
-- `npm test` runs 34 tests against a mock BookOrbit and the firmware's rules. They cover the highlight-file format,
-  position mapping, the two-way exchange, `device.json` templates, the Plugin Hub rules and the release zip.
+- `npm test` runs 49 tests against a mock BookOrbit and the firmware's rules. They cover the highlight-file format,
+  position mapping, the two-way exchange, `device.json` templates, the problem log and its redaction, the update
+  notice, the Plugin Hub rules and the release zip.
 - `sh scripts/package.sh` builds `dist/cp-orbit-<version>.zip`.
 - To release, push a tag `v<version>` that matches `manifest.json`. GitHub Actions then tests the code, builds the
   zip and publishes the release.

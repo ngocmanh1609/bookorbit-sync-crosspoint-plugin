@@ -37,7 +37,5 @@ if [ "${DRY_RUN:-}" != 1 ]; then
     echo "Uploaded, but /api/plugins does not list cp-orbit yet (Plugins setting off?)." >&2
   fi
 fi
-case " $* " in
-  *" device.json "*) echo "device.json changed: turn the reader off and on." ;;
-  *) echo "Reload the reader's Plugins web page to load the new card." ;;
-esac
+# CrossPoint 2.0.0 re-reads device.json and its event table when File Transfer ends; no restart.
+echo "Leave File Transfer on the reader, and reload the Plugins web page to load the new card."

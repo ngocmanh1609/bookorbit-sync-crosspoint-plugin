@@ -22,7 +22,7 @@ SET UP (once)
 2. In the BookOrbit card enter your server address and your BookOrbit
    KOReader sync login (BookOrbit web: Settings > KOReader), then Save.
    Save also sets the reader's progress sync to BookOrbit.
-3. Restart the reader once so reading sessions start being sent.
+3. Leave File Transfer. No restart is needed.
 
 SYNC READING PROGRESS
 Inside a book: reader menu > Sync progress. If your reader lists it, you
@@ -32,17 +32,33 @@ or Upload local progress (keep this reader's place). The reader never
 syncs progress on its own.
 
 HIGHLIGHTS
-In the web card pick a book and press Sync highlights. New highlights go
-both ways, and deletions too. Sync all recent books does every book in
-the reader's recent list.
+The reader never syncs highlights by itself. To sync them:
+1. In a book, select text and choose Clip. That is the highlight.
+   (Bookmark only marks the page and is not synced. There are no notes.)
+2. Open File Transfer, open its address on a phone or computer, then the
+   Plugins tab.
+3. In the BookOrbit card pick the book and press Sync highlights, or Sync
+   all recent books for every book in the recent list.
+New highlights and deletions go both ways, so BookOrbit's highlights
+arrive here the same way. If some could not be synced, Show which lists
+each one and why (for example, it spans two chapters).
 
 IF SYNC SAYS "COULD NOT SYNC CLIPPINGS"
 Untick Settings > Connectivity > CrossPoint Sync > Sync Clippings, or press
 Save on the web card again. BookOrbit does not support that clipping sync.
 
 UPDATING
-Use Sync progress first, then copy the new cp-orbit folder over the old
-one and restart. Your settings are kept in /.cp-orbit on the SD card.
+On the reader: Home > Plugins > Plugin Hub > BookOrbit > Update. (No
+Plugin Hub yet? Home > Plugins > Plugin Hub > Install.) The web card
+shows a banner when an update is ready. Or copy the new cp-orbit folder
+over the old one after using Sync progress. No restart is needed. Your
+settings are kept in /.cp-orbit on the SD card.
+
+PROBLEMS
+The web card keeps a problem log. Under Updates and problems, press
+Download log, then Report a problem, and attach the file to the GitHub
+issue that opens. The log leaves out your password, key, username and
+server address.
 
 Help and known issues:
 github.com/ngocmanh1609/bookorbit-sync-crosspoint-plugin

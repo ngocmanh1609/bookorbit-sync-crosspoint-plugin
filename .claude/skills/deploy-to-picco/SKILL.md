@@ -1,6 +1,6 @@
 ---
 name: deploy-to-picco
-description: Install or update the cp-orbit plugin on the user's CrossPoint reader (BOOX Picco) straight from this checkout, over Wi-Fi or by SD card, then say whether a restart or just a page reload is needed and how to check it works. Use this whenever the user wants to try a change on the device, deploy, upload or copy the plugin to the reader, test on the Picco, reinstall, or asks why a change doesn't show up on the reader, even if they don't say "deploy".
+description: Install or update the cp-orbit plugin on the user's CrossPoint reader (BOOX Picco) straight from this checkout, over Wi-Fi or by SD card, then say what the user does next (leave File Transfer, reload the page; no restart on 2.0.0) and how to check it works. Use this whenever the user wants to try a change on the device, deploy, upload or copy the plugin to the reader, test on the Picco, reinstall, or asks why a change doesn't show up on the reader, even if they don't say "deploy".
 ---
 
 # Deploy cp-orbit to the reader
@@ -36,13 +36,20 @@ Optionally remove the macOS `._*` files afterwards with `dot_clean`.
 
 ## What the user must do next
 
-It depends on what changed:
+No restart, on CrossPoint 2.0.0. In the firmware source:
+- Event delivery re-reads `device.json` every time (`PluginEvents.cpp`).
+- The event table is rebuilt when File Transfer ends (`CrossPointWebServerActivity.cpp`), when Home → Plugins opens,
+  and after a Plugin Hub install (`PluginCatalogActivity.cpp`).
+- The catalog re-reads the file when it opens.
 
 | Changed | Then |
 |---|---|
-| `plugin.js` only (web card) | Reload the reader's **Plugins** web page. No restart. |
-| `device.json` (catalog, download, events) | Turn the reader **off and on**: hold Power about half a second, then again. The event table is rebuilt at boot, and the catalog re-reads the file when Home → Plugins opens. |
-| First install | **Settings → Connectivity → Plugins** on, restart, then on the web card enter the server and login and press **Save**. |
+| `plugin.js` only (web card) | Reload the reader's **Plugins** web page. |
+| `device.json` (catalog, download, events) | Leave **File Transfer** on the reader. |
+| First install | **Settings → Connectivity → Plugins** on, open Home → Plugins once, then on the web card enter the server and login and press **Save**. |
+
+Turning the reader off and on (hold Power about half a second, then again) is the fallback if something doesn't show
+up.
 
 If the user also has the older `bookorbit-sync` plugin, they should remove it. Otherwise reading time is counted twice.
 
@@ -60,7 +67,8 @@ If the user also has the older `bookorbit-sync` plugin, they should remove it. O
 
 ## Notes
 
-- **Don't restart remotely:** the reader has no restart endpoint, so ask the user.
+- **No remote restart:** the reader has no restart endpoint (none of the web routes in `CrossPointWebServer.cpp`), and
+  none is needed after a deploy.
 - **Reads are fine, writes are not:** listing and reading are harmless (`/api/status`, `/api/plugins`,
   `/api/files`, `/download`). Never write outside `/plugins/cp-orbit/` or delete anything without asking.
 - **The BookOrbit Devices list** only shows the reader after its first progress *upload*. It appears there as

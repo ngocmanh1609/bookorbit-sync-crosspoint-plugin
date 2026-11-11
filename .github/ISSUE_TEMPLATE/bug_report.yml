@@ -1,0 +1,48 @@
+# Opened by "Report a problem" on the BookOrbit card, which fills in version, firmware, device and the title.
+name: Problem report
+description: Something in cp-orbit didn't work. Please attach the log from the card.
+title: "Problem: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        On the reader's **Plugins** web page, on the BookOrbit card, press **Download log** under **Updates and problems**,
+        then drag the file into the **Log file** box below. The log leaves out your password, key, username and server
+        address, but it does include book file paths. Read it before posting if that matters to you.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Press …
+  - type: input
+    id: version
+    attributes:
+      label: cp-orbit version
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: CrossPoint firmware version
+      placeholder: "2.0.0"
+  - type: input
+    id: device
+    attributes:
+      label: Reader
+      placeholder: picco
+  - type: textarea
+    id: log
+    attributes:
+      label: Log file
+      description: Drag cp-orbit-log-<date>.txt here.
