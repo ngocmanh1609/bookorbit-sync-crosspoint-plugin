@@ -1,0 +1,13 @@
+{
+  "name": "cp-orbit-dev",
+  "private": true,
+  "description": "Development tooling for the cp-orbit CrossPoint plugin. Not part of the plugin payload.",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "package": "sh scripts/package.sh"
+  },
+  "devDependencies": {
+    "jszip": "3.10.1",
+    "linkedom": "0.18.5"
+  }
+}

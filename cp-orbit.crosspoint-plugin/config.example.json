@@ -1,0 +1,7 @@
+{
+  "server": "http://192.168.1.50:3000",
+  "user": "your-koreader-sync-username",
+  "key": "md5-of-your-koreader-sync-password",
+  "device_id": "crosspoint-picco",
+  "dest_dir": "/Books/BookOrbit"
+}

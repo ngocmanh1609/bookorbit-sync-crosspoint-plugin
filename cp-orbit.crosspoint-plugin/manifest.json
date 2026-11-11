@@ -1,0 +1,14 @@
+{
+  "name": "cp-orbit",
+  "title": "BookOrbit",
+  "description": "Your BookOrbit library on CrossPoint: browse and download books, sync reading progress, reading sessions, highlights, status and ratings.",
+  "author": "ngocmanh1609",
+  "version": "0.1.0",
+  "mount": "settings",
+  "compatibility": {
+    "firmware_family": ["crosspoint"],
+    "plugin_api_min": 1,
+    "requires": ["catalog.lists", "catalog.list_index_mapping", "catalog.encoded_item_fields", "catalog.server_paths"]
+  },
+  "files": ["manifest.json", "device.json", "plugin.js", "README.md", "config.example.json"]
+}
