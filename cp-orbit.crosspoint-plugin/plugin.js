@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.1.0';
+  const VERSION = '0.2.0';
   const PLUGIN_VERSION = 'cp-orbit/' + VERSION;
   const DEVICE_MODEL = 'CrossPoint';
   // User data lives outside the plugin folder so replacing the folder on update keeps it.
@@ -852,18 +852,27 @@
 
   // ---------------------------------------------------------------- shelves
 
-  function shelfLists(collections, scopes) {
+  // The firmware allows one level of catalog lists and shows lists fetched through browse.lists_url after
+  // the manifest's own. To list built-ins, then libraries, collections and SmartScopes in that order, the
+  // card writes all three as manifest lists ("shelf": true) and drops lists_url. The shipped device.json
+  // keeps lists_url, so libraries still show before the card has run.
+  const LISTS_URL_KEYS = ['lists_url', 'lists_headers', 'lists_items', 'lists_fields'];
+
+  function shelfLists(libraries, collections, scopes) {
     const url = (param, id) => '{cfg.server}' + CATALOG + '/books?' + param + '=' + encodeURIComponent(id) + '&sort=title&format=epub&page={page}&size={limit}';
     return [
-      ...collections.map((c) => ({ title: 'Collection: ' + c.title, url: url('collectionId', c.id), shelf: true })),
-      ...scopes.map((s) => ({ title: 'SmartScope: ' + s.title, url: url('smartScopeId', s.id), shelf: true })),
+      ...libraries.map((l) => ({ title: l.title, url: url('libraryId', l.id), shelf: true })),
+      ...collections.map((c) => ({ title: 'Collection · ' + c.title, url: url('collectionId', c.id), shelf: true })),
+      ...scopes.map((s) => ({ title: 'SmartScope · ' + s.title, url: url('smartScopeId', s.id), shelf: true })),
     ];
   }
 
   /** Replaces the shelf lists in device.json, keeping the built-in lists and the 8KB cap. */
   function mergeShelves(device, shelves) {
     const base = ((device.browse && device.browse.lists) || []).filter((l) => !l.shelf);
-    const build = (lists) => Object.assign({}, device, { browse: Object.assign({}, device.browse, { lists }) });
+    const browse = Object.assign({}, device.browse);
+    for (const key of LISTS_URL_KEYS) delete browse[key];
+    const build = (lists) => Object.assign({}, device, { browse: Object.assign({}, browse, { lists }) });
     const kept = [];
     for (const s of shelves) {
       if (utf8(JSON.stringify(build(base.concat(kept, [s])))).length > MANIFEST_MAX) break;
@@ -872,26 +881,48 @@
     return { device: build(base.concat(kept)), kept: kept.length, dropped: shelves.length - kept.length };
   }
 
-  async function updateShelves(api, bo) {
-    const [collections, scopes] = await Promise.all([bo.get(CATALOG + '/sections/collections'), bo.get(CATALOG + '/sections/smart-scopes')]);
-    const lists = shelfLists((collections && collections.items) || [], (scopes && scopes.items) || []);
+  const shelvesOf = (device) => ((device.browse && device.browse.lists) || []).filter((l) => l.shelf);
+
+  /** Mirrors the server's libraries, collections and SmartScopes into the catalog; writes only on change. */
+  async function syncShelves(api, bo) {
+    const [libraries, allCollections, allScopes] = await Promise.all(
+      ['libraries', 'collections', 'smart-scopes'].map((s) => bo.get(CATALOG + '/sections/' + s).then((r) => (r && r.items) || []))
+    );
+    // Empty collections and SmartScopes are hidden. A SmartScope past the server's preview cap has no
+    // count, so it stays: an empty list on the reader beats a missing one.
+    const collections = allCollections.filter((e) => e.count !== 0);
+    const scopes = allScopes.filter((e) => e.count !== 0);
+    const hidden = allCollections.length - collections.length + allScopes.length - scopes.length;
+    const lists = shelfLists(libraries, collections, scopes);
     const device = await readJson(api.dir + '/device.json');
     if (!device || !device.browse) throw new Error('Could not read the plugin\'s device.json.');
     const merged = mergeShelves(device, lists);
-    await writeJson(api, api.dir + '/device.json', merged.device);
-    await writeJson(api, SHELVES_PATH, { lists: lists.slice(0, merged.kept) });
-    return merged;
+    const current = JSON.stringify(shelvesOf(device));
+    const changed = current !== JSON.stringify(shelvesOf(merged.device)) || LISTS_URL_KEYS.some((k) => k in device.browse);
+    if (changed) {
+      await writeJson(api, api.dir + '/device.json', merged.device);
+      await writeJson(api, SHELVES_PATH, { lists: lists.slice(0, merged.kept) });
+    }
+    return { changed, kept: merged.kept, dropped: merged.dropped, hidden, libraries: libraries.length, collections: collections.length, scopes: scopes.length };
   }
 
-  /** After an update replaced device.json, puts the saved shelves back. */
+  /** Without the server (offline), puts the last known shelves back after an update replaced device.json. */
   async function restoreShelves(api) {
     const saved = await readJson(SHELVES_PATH);
     if (!saved || !Array.isArray(saved.lists) || !saved.lists.length) return 0;
     const device = await readJson(api.dir + '/device.json');
-    if (!device || !device.browse || (device.browse.lists || []).some((l) => l.shelf)) return 0;
+    if (!device || !device.browse || shelvesOf(device).length) return 0;
     const merged = mergeShelves(device, saved.lists);
     await writeJson(api, api.dir + '/device.json', merged.device);
     return merged.kept;
+  }
+
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+  function describeShelves(r) {
+    const parts = [plural(r.libraries, 'library', 'libraries'), plural(r.collections, 'collection', 'collections'), plural(r.scopes, 'SmartScope', 'SmartScopes')];
+    let text = 'In the reader\'s catalog: ' + parts.join(', ') + '.' + (r.hidden ? ' ' + plural(r.hidden, 'empty one', 'empty ones') + ' hidden.' : '') + (r.changed ? ' Updated just now.' : '');
+    if (r.dropped) text += ' ' + r.dropped + ' did not fit in the reader\'s list limit.';
+    return text;
   }
 
   // -------------------------------------------------------------- highlights
@@ -1320,19 +1351,21 @@
           }
         }
         say(setupMsg, text, 'ok');
+        await refreshShelves(next);
       } catch (e) {
         say(setupMsg, e.message, 'error');
       }
     }
 
-    async function onShelves() {
+    // Libraries, collections and SmartScopes follow the server each time this page opens, and after Save.
+    async function refreshShelves(c) {
       try {
-        const c = requireConfig();
-        say(shelfMsg, 'Loading collections and SmartScopes…');
-        const r = await updateShelves(api, boClient(api, c));
-        say(shelfMsg, r.kept + ' shelves added to Home → Plugins → BookOrbit.' + (r.dropped ? ' ' + r.dropped + ' did not fit in the reader\'s list limit.' : ''), 'ok');
+        say(shelfMsg, 'Checking your libraries, collections and SmartScopes…');
+        say(shelfMsg, describeShelves(await syncShelves(api, boClient(api, c))), 'ok');
       } catch (e) {
-        say(shelfMsg, e.message, 'error');
+        const restored = await restoreShelves(api).catch(() => 0);
+        if (restored) say(shelfMsg, 'Could not update the lists from BookOrbit, so the last known ones were kept (' + restored + '). ' + e.message, 'ok');
+        else say(shelfMsg, 'Could not update the catalog lists: ' + e.message, 'error');
       }
     }
 
@@ -1435,9 +1468,8 @@
       row('When positions differ', f.ask),
       el('div', { class: 'setting-row' }, button('Test connection', onTest), ' ', button('Save', onSave)),
       setupMsg,
-      el('h3', {}, 'Shelves'),
-      el('p', {}, 'Adds your BookOrbit collections and SmartScopes to the on-device catalog (your libraries are listed there already).'),
-      el('div', { class: 'setting-row' }, button('Update shelves', onShelves)),
+      el('h3', {}, 'Catalog lists'),
+      el('p', {}, 'Your libraries, collections and SmartScopes appear in Home → Plugins → BookOrbit on the reader. They follow BookOrbit automatically each time this page opens; empty ones are hidden.'),
       shelfMsg,
       el('h3', {}, 'Highlights, status and rating'),
       row('Book', el('span', {}, bookSelect, otherPath)),
@@ -1456,8 +1488,6 @@
           f.dest.value = cfg.dest_dir || '';
           if (cfg.key) f.password.placeholder = 'Saved (leave empty to keep)';
         }
-        const restored = await restoreShelves(api);
-        if (restored) say(shelfMsg, 'Shelves restored (' + restored + ').', 'ok');
         const recent = await readJson(RECENT_PATH);
         const books = ((recent && recent.books) || []).filter((b) => /\.epub$/i.test(b.path || ''));
         bookSelect.replaceChildren(
@@ -1474,6 +1504,7 @@
           otherPath.style.display = '';
         }
         if (cfg) await deviceId();
+        if (cfg && cfg.server && cfg.key) await refreshShelves(cfg);
       } catch (e) {
         say(setupMsg, e.message, 'error');
       }
@@ -1506,8 +1537,9 @@
     applyKosync,
     shelfLists,
     mergeShelves,
-    updateShelves,
+    syncShelves,
     restoreShelves,
+    describeShelves,
     normalizeServer,
     deviceDatetime,
     render,

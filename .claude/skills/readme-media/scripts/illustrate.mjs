@@ -98,7 +98,7 @@ const screens = {
   ], 0)),
   '2-bookorbit': chrome('BookOrbit', rows([
     'Continue reading', 'Recently added', 'Not started', 'Finished', 'All books',
-    'Fiction', 'Non-fiction', 'Collection: Classics', 'Collection: Book club', 'SmartScope: Short reads',
+    'Fiction', 'Non-fiction', 'Collection · Classics', 'Collection · Book club', 'SmartScope · Short reads',
   ], 0)),
   '3-continue': chrome('Continue reading', rows([
     ['Pride and Prejudice', 'Jane Austen'], ['Moby-Dick; or, The Whale', 'Herman Melville'],

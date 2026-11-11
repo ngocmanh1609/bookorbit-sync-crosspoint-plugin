@@ -24,7 +24,7 @@ node .claude/skills/readme-media/scripts/web-card.mjs
 ```
 
 The script starts a stand-in reader with the mock BookOrbit from `tests/`, then drives the card the way a user would:
-Save, Update shelves, Sync highlights, then show and save status and rating. It writes:
+Save (which also syncs the catalog lists), Sync highlights, then show and save status and rating. It writes:
 
 - `docs/images/web-card.gif`: about 760 px wide, around 300 KB.
 - `docs/images/web-card.png`: the full card, 2× resolution.
@@ -48,7 +48,7 @@ writes:
 
 **Keep the screens truthful.** The `screens` object in `illustrate.mjs` must match what the plugin and firmware really
 show:
-- list titles from `device.json` `browse.lists`, plus the `Collection: …` / `SmartScope: …` shelves `plugin.js` writes;
+- list titles from `device.json` `browse.lists`, plus the library, `Collection · …` and `SmartScope · …` lists `plugin.js` writes;
 - strings from the firmware's `lib/I18n/translations/english.yaml`, such as `Progress found!`,
   `Page %d, %.2f%% overall`, `Apply remote progress`;
 - the Lyra metrics in `src/components/themes/lyra/LyraTheme.h`.

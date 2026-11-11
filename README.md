@@ -34,7 +34,8 @@ BookOrbit's [KOReader plugin](https://bookorbit.app/koreader-plugin), rebuilt as
 **On the reader**
 
 - **Catalog:** Home → Plugins → BookOrbit lists Continue reading, Recently added, Not started, Finished, All books,
-  your libraries, and your collections and SmartScopes. Search finds a title or author.
+  then each of your libraries, collections and SmartScopes. They follow your server automatically, and empty ones
+  are hidden. Search finds a title or author.
 - **Downloads:** pick a book and it is saved to `/Books/BookOrbit` (EPUB only; the reader cannot open PDF or CBZ).
 - **Reading sessions and stats:** your reading log, streaks and stats update automatically, when the reader connects
   to Wi-Fi or goes to sleep.
@@ -58,7 +59,7 @@ BookOrbit's [KOReader plugin](https://bookorbit.app/koreader-plugin), rebuilt as
 
 </td>
 <td width="50%" valign="top" align="center">
-  <img src="docs/images/web-card.gif" alt="The BookOrbit card on the reader's Plugins web page: saving the login, adding shelves, syncing highlights and setting a rating" width="400">
+  <img src="docs/images/web-card.gif" alt="The BookOrbit card on the reader's Plugins web page: saving the login, syncing the catalog lists and highlights, and setting a rating" width="400">
   <br><sub>The real web card, recorded against a demo library</sub>
 </td>
 </tr>
@@ -154,11 +155,34 @@ recent list:
 The book must be the same file BookOrbit has; books downloaded through the catalog always are. Before every change,
 the reader's highlight file is backed up to `/.cp-orbit/backup/`.
 
-### Status, rating and shelves
+### Catalog lists: libraries, collections and SmartScopes
 
-- **Show status & rating** looks the book up and shows its current values. Change them, then press **Save status &
-  rating**.
-- **Update shelves** adds your collections and SmartScopes to the reader's catalog.
+Each library, collection and SmartScope on your server gets its own entry in Home → Plugins → BookOrbit:
+
+```
+Continue reading · Recently added · Not started · Finished · All books
+Fiction                      ← a library
+Collection · Classics
+SmartScope · Short reads
+```
+
+The card keeps these entries matched to BookOrbit every time its web page opens, and after **Save**. New ones
+appear, deleted ones go, and a collection or SmartScope with no books is hidden. If BookOrbit can't be reached, the
+last known lists stay.
+
+> [!NOTE]
+> **The entries are flat, not folders.** CrossPoint's firmware gives plugin catalogs a single level of lists:
+> choosing an entry opens its books, and choosing a book downloads it. A "Collections" entry that opens a list of
+> your collections, each opening its books, can't be built in a plugin today. So each collection and SmartScope is
+> listed directly, with a `Collection ·` or `SmartScope ·` prefix.
+>
+> For folder-style browsing, CrossPoint's built-in **OPDS** browser can show BookOrbit's OPDS feed, which nests
+> libraries, collections and SmartScopes. It needs a separate OPDS user, set up in BookOrbit.
+
+### Status and rating
+
+**Show status & rating** looks the book up and shows its current values. Change them, then press **Save status &
+rating**.
 
 <details>
 <summary>Every control on the card</summary>
@@ -172,7 +196,7 @@ the reader's highlight file is backed up to `/.cp-orbit/backup/`.
 | When positions differ | **Ask me**, or **Use the furthest automatically**. |
 | **Test connection** | Checks the address and login. Saves nothing. |
 | **Save** | Checks the login, saves the settings and, if ticked, sets up progress sync. Nothing is saved if the login fails. |
-| **Update shelves** | Adds your collections and SmartScopes to the catalog. Press it again after you change them in BookOrbit. |
+| Catalog lists | No button: opening the page (or **Save**) updates the reader's library, collection and SmartScope entries. |
 | Book | The book the buttons below work on: a recent book, or **Another book** to type a path. |
 | **Sync highlights** | Two-way highlight sync for that book. |
 | **Sync all recent books** | Sync highlights for every recent book, with a result line for each. |
@@ -186,8 +210,9 @@ the reader's highlight file is backed up to `/.cp-orbit/backup/`.
 1. Use **Sync progress**, or just connect the reader to Wi-Fi, so queued reading sessions go out first.
 2. Copy the new `cp-orbit` folder over the old one ("Replace" is fine), then turn the reader off and on.
 
-Your settings and sync state live in `/.cp-orbit/`, outside the plugin folder, so you never re-enter them.
-Shelves come back the next time you open the card. Deleting `/.cp-orbit/` resets the plugin.
+Your settings and sync state live in `/.cp-orbit/`, outside the plugin folder, so you never re-enter them. Until
+you next open the card, the catalog shows your libraries but not your collections or SmartScopes. Opening the card
+puts them back. Deleting `/.cp-orbit/` resets the plugin.
 
 ## Troubleshooting
 
@@ -196,14 +221,17 @@ Shelves come back the next time you open the card. Deleting `/.cp-orbit/` resets
 | **"Sync failed. Could not sync clippings"** | The reader's clipping sync is on, and BookOrbit doesn't support it. Untick **Settings → Connectivity → CrossPoint Sync → Sync Clippings**, or press **Save** on the card again. |
 | The Picco isn't in BookOrbit's **Devices** list | That list only shows devices that have uploaded a position. Use **Sync progress** and choose **Upload local progress**. The reader appears as **"CrossPoint"**, a name fixed in the firmware. |
 | The catalog shows an error | Set up the card first, and check that the reader can reach the server address. |
+| A new collection or SmartScope is missing | Open the card's web page once; it updates the lists. Empty ones (no books) are hidden. |
 | No reading sessions in BookOrbit | The folder must be `/plugins/cp-orbit`. Turn the reader off and on after installing, and make sure the reader shows the correct time. |
 | A downloaded book won't open | That book's first file in BookOrbit isn't an EPUB (see [known issues](KNOWN_ISSUES.md)). |
 
 ## What CrossPoint can't do
 
-CrossPoint plugins can't draw their own screens or run code on the reader. The KOReader plugin's dashboard, widgets,
-covers, bulk download and bookmark sync therefore have no equivalent. Progress never syncs on its own; you start it
-with Sync progress. All limits are listed in [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+CrossPoint plugins can't draw their own screens or run code on the reader, and their catalogs have one level of
+lists, so collections and SmartScopes can't be folders (see [Catalog lists](#catalog-lists-libraries-collections-and-smartscopes)).
+The KOReader plugin's dashboard, widgets, covers, bulk download and bookmark sync therefore have no equivalent.
+Progress never syncs on its own; you start it with Sync progress. All limits are listed in
+[KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Security
 

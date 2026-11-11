@@ -59,8 +59,15 @@ token flow, so `device.json` has no `token`/`auth` block.
 keeps it:
 - `config.json`: `server`, `user`, `key`, `device_id`, `dest_dir`. `device.json` points `config.file` at this
   absolute path.
-- `shelves.json`: the chosen shelves. `device.json` gets rewritten with collection/SmartScope lists marked
-  `"shelf": true`, and `restoreShelves` re-applies them after an update.
+- `shelves.json`: the last synced catalog lists.
+  - **What `syncShelves` writes:** it runs on every card load and after Save, and writes libraries,
+    `Collection · …` and `SmartScope · …` lists into `device.json`, marked `"shelf": true`. It hides
+    collections and SmartScopes with `count === 0`.
+  - **Why it drops `lists_url`:** the firmware shows fetched lists after the manifest's own, and allows only one
+    level of lists, so nested "Collections → collection" is impossible. Dropping it keeps libraries first. The
+    shipped file keeps `lists_url` as the fallback.
+  - **No server:** `restoreShelves` re-applies `shelves.json` when BookOrbit is unreachable after an update.
+  - **Writes:** it rewrites `device.json` only when the lists change.
 - `state/<partialMd5>.json`: highlight sync state.
 - `backup/`: copies of the reader's highlight file.
 

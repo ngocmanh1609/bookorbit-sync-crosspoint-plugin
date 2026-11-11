@@ -356,30 +356,59 @@ test('KOSync: asks before replacing another sync server, and skips settings it c
 
 const DEVICE_JSON = readFileSync(PAYLOAD + 'device.json', 'utf8');
 
-test('shelves: collections and SmartScopes become catalog lists within the 8KB manifest cap', async () => {
+function shelfServer() {
   const bookorbit = createBookOrbit();
+  bookorbit.catalog.collections = [
+    { id: '7', title: 'Favourites', section: 'collections', count: 4 },
+    { id: '8', title: 'Empty', section: 'collections', count: 0 },
+  ];
+  bookorbit.catalog.scopes = [
+    { id: '9', title: 'Short reads', section: 'smart-scopes' }, // past the preview cap: no count, so kept
+    { id: '10', title: 'Nothing', section: 'smart-scopes', count: 0 },
+  ];
+  return bookorbit;
+}
+
+test('shelves: libraries, collections and SmartScopes follow the server, in that order, empty ones hidden', async () => {
+  const bookorbit = shelfServer();
   const reader = fakeReader({ bookorbit, files: { [PLUGIN_DIR + '/device.json']: DEVICE_JSON } });
   const { lib: plugin } = loadPlugin(reader);
-  const r = await plugin.updateShelves(reader.api, plugin.boClient(reader.api, CFG));
-  assert.equal(r.kept, 2);
-  const lists = reader.readJson(PLUGIN_DIR + '/device.json').browse.lists;
-  assert.deepEqual(lists.filter((l) => l.shelf).map((l) => l.title), ['Collection: Favourites', 'SmartScope: Short reads']);
-  assert.match(lists.find((l) => l.shelf).url, /collectionId=7&.*page=\{page\}&size=\{limit\}/);
-  assert.equal(lists.filter((l) => !l.shelf).length, 5, 'built-in lists kept');
-  const many = plugin.shelfLists(Array.from({ length: 200 }, (_, i) => ({ id: String(i), title: 'Shelf ' + i })), []);
+  const bo = plugin.boClient(reader.api, CFG);
+  const r = await plugin.syncShelves(reader.api, bo);
+  assert.deepEqual([r.changed, r.libraries, r.collections, r.scopes, r.hidden], [true, 1, 1, 1, 2]);
+  assert.equal(plugin.describeShelves(r), 'In the reader\'s catalog: 1 library, 1 collection, 1 SmartScope. 2 empty ones hidden. Updated just now.');
+  const browse = reader.readJson(PLUGIN_DIR + '/device.json').browse;
+  assert.deepEqual(plain(browse.lists.map((l) => l.title)), [
+    'Continue reading', 'Recently added', 'Not started', 'Finished', 'All books',
+    'Fiction', 'Collection · Favourites', 'SmartScope · Short reads',
+  ]);
+  assert.match(browse.lists[5].url, /libraryId=3&.*page=\{page\}&size=\{limit\}$/);
+  assert.match(browse.lists[6].url, /collectionId=7&/);
+  assert.match(browse.lists[7].url, /smartScopeId=9&/);
+  assert.equal('lists_url' in browse, false, 'libraries come from the written lists now, so they are not listed twice');
+
+  const writes = reader.writes.length;
+  assert.equal((await plugin.syncShelves(reader.api, bo)).changed, false);
+  assert.equal(reader.writes.length, writes, 'nothing is rewritten when the server has not changed');
+  bookorbit.catalog.collections.push({ id: '11', title: 'Book club', section: 'collections', count: 2 });
+  assert.equal((await plugin.syncShelves(reader.api, bo)).changed, true);
+  assert.ok(reader.readJson(PLUGIN_DIR + '/device.json').browse.lists.some((l) => l.title === 'Collection · Book club'));
+
+  const many = plugin.shelfLists([], Array.from({ length: 200 }, (_, i) => ({ id: String(i), title: 'Shelf ' + i })), []);
   const merged = plugin.mergeShelves(JSON.parse(DEVICE_JSON), many);
   assert.ok(new TextEncoder().encode(JSON.stringify(merged.device)).length <= 8000);
   assert.ok(merged.dropped > 0 && merged.kept > 0);
 });
 
-test('update: a fresh device.json gets the saved shelves back; settings survive in /.cp-orbit', async () => {
-  const bookorbit = createBookOrbit();
-  const reader = fakeReader({ bookorbit, files: { [PLUGIN_DIR + '/device.json']: DEVICE_JSON } });
+test('update: without the server, a fresh device.json gets the last known lists back', async () => {
+  const reader = fakeReader({ bookorbit: shelfServer(), files: { [PLUGIN_DIR + '/device.json']: DEVICE_JSON } });
   const { lib: plugin } = loadPlugin(reader);
-  await plugin.updateShelves(reader.api, plugin.boClient(reader.api, CFG));
+  await plugin.syncShelves(reader.api, plugin.boClient(reader.api, CFG));
   reader.sd.set(PLUGIN_DIR + '/device.json', new TextEncoder().encode(DEVICE_JSON)); // the update replaced the folder
-  assert.equal(await plugin.restoreShelves(reader.api), 2);
-  assert.equal(reader.readJson(PLUGIN_DIR + '/device.json').browse.lists.filter((l) => l.shelf).length, 2);
+  assert.equal(await plugin.restoreShelves(reader.api), 3);
+  const browse = reader.readJson(PLUGIN_DIR + '/device.json').browse;
+  assert.equal(browse.lists.filter((l) => l.shelf).length, 3);
+  assert.equal('lists_url' in browse, false);
   assert.equal(await plugin.restoreShelves(reader.api), 0, 'nothing to do when they are there');
 });
 
@@ -400,7 +429,7 @@ test('card: loads saved settings after an update, saves only to /.cp-orbit and s
     files: {
       [PLUGIN_DIR + '/device.json']: DEVICE_JSON,
       '/.cp-orbit/config.json': JSON.stringify({ server: 'http://bo.local:3000', user: 'reader', key: md5hex('old'), device_id: 'kept-id', dest_dir: '/Books/BO' }),
-      '/.cp-orbit/shelves.json': JSON.stringify({ lists: [{ title: 'Collection: Favourites', url: '{cfg.server}/x?page={page}&size={limit}', shelf: true }] }),
+      '/.cp-orbit/shelves.json': JSON.stringify({ lists: [{ title: 'Collection · Favourites', url: '{cfg.server}/x?page={page}&size={limit}', shelf: true }] }),
       '/.crosspoint/recent.json': JSON.stringify({ books: [{ path: '/Books/1984.epub', title: '1984', author: 'Orwell' }, { path: '/Books/notes.txt', title: 'Notes' }] }),
     },
   });
@@ -412,18 +441,22 @@ test('card: loads saved settings after an update, saves only to /.cp-orbit and s
   assert.equal(inputs[0].value, 'http://bo.local:3000');
   assert.equal(inputs[1].value, 'reader');
   assert.equal(inputs[3].value, '/Books/BO');
-  assert.match(container.textContent, /Shelves restored \(1\)/);
+  // The saved key is stale, so BookOrbit refuses it: the card keeps the last known lists.
+  assert.match(container.textContent, /last known ones were kept \(1\)/);
   assert.equal(container.querySelectorAll('select')[1].querySelectorAll('option').length, 2, 'EPUBs only, plus "another book"');
 
   inputs[2].value = 'secret';
   const save = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Save');
   save.dispatchEvent(new document.defaultView.Event('click'));
-  await waitFor(() => /Saved\./.test(container.textContent) || /refused|Enter/.test(container.textContent));
+  const setupMsg = () => container.querySelector('.cp-orbit-msg').textContent;
+  await waitFor(() => /Saved\.|refused|Enter/.test(setupMsg()));
   assert.match(container.textContent, /Saved\. Reader progress sync now uses BookOrbit/);
   const cfg = reader.readJson('/.cp-orbit/config.json');
   assert.deepEqual(cfg, { server: 'http://bo.local:3000', user: 'reader', key: md5hex('secret'), device_id: 'kept-id', dest_dir: '/Books/BO' });
   assert.equal(JSON.stringify(cfg).includes('secret'), false, 'only the md5 is stored');
   assert.equal(reader.settingsPosts[0].koServerUrl, 'http://bo.local:3000/api/v1/koreader');
+  await waitFor(() => /In the reader's catalog: 1 library, 1 collection, 1 SmartScope\./.test(container.textContent));
+  assert.ok(reader.readJson(PLUGIN_DIR + '/device.json').browse.lists.some((l) => l.title === 'SmartScope · Short reads'), 'Save syncs the lists');
   for (const p of reader.writes) assert.ok(p.startsWith('/.cp-orbit/') || p === PLUGIN_DIR + '/device.json', 'unexpected write ' + p);
 
   const labels = Array.from(container.querySelectorAll('button')).map((b) => b.textContent);

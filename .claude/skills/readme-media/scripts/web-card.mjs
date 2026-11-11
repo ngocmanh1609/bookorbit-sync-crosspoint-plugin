@@ -38,8 +38,12 @@ const { createBookOrbit } = await import(pathToFileURL(ROOT + 'tests/mock-bookor
 const { encodeStoreRef, makeEpub } = await import(pathToFileURL(ROOT + 'tests/helpers.mjs').href);
 const enc = new TextEncoder();
 const bo = createBookOrbit({ user: 'reader', password: 'secret' });
-bo.catalog.collections = [{ id: '7', title: 'Classics', section: 'collections' }, { id: '8', title: 'Book club', section: 'collections' }];
-bo.catalog.scopes = [{ id: '9', title: 'Short reads', section: 'smart-scopes' }];
+bo.catalog.collections = [
+  { id: '7', title: 'Classics', section: 'collections', count: 12 },
+  { id: '8', title: 'Book club', section: 'collections', count: 3 },
+  { id: '12', title: 'Wishlist', section: 'collections', count: 0 }, // hidden: no books
+];
+bo.catalog.scopes = [{ id: '9', title: 'Short reads', section: 'smart-scopes', count: 5 }];
 const BOOK = '/Books/BookOrbit/Pride and Prejudice - Jane Austen.epub';
 const P1 = 'It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.';
 const P2 = 'However little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed in the minds of the surrounding families.';
@@ -188,9 +192,9 @@ try {
   await type(2, 'secret', 2);
   await js(`press('Save')`); await sleep(120); await frame(0.9);
   await until(`/Saved\\./.test(msg(0))`); await frame(2.6);
-  await js(`show(btn('Update shelves').closest('.setting-row').previousElementSibling)`); await frame(0.8);
-  await js(`press('Update shelves')`); await sleep(150); await frame(0.9);
-  await until(`/shelves added/.test(msg(1))`); await frame(2.0);
+  // Save also syncs the catalog lists; show that section's result.
+  await js(`show(card.querySelectorAll('.cp-orbit-msg')[1].previousElementSibling.previousElementSibling)`); await frame(0.6);
+  await until(`/In the reader's catalog/.test(msg(1))`); await frame(2.4);
   await js(`show(btn('Sync highlights').closest('.setting-row').previousElementSibling.previousElementSibling)`); await frame(0.9);
   await js(`press('Sync highlights')`); await sleep(150); await frame(0.7);
   await until(`/Applying|sent|added/.test(msg(2))`); await frame(0.9);

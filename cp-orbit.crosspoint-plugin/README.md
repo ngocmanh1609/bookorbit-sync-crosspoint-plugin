@@ -5,9 +5,10 @@ Verified on the BOOX Picco (CrossPoint 2.0.0). Other readers are untested.
 
 WHAT IT DOES
 - Catalog: Home > Plugins > BookOrbit lists Continue reading, Recently added,
-  Not started, Finished, All books and your BookOrbit libraries. Open a list
-  and use Search at the top to find a title or author. Pick a book to
-  download it to /Books/BookOrbit.
+  Not started, Finished, All books, then your libraries, collections and
+  SmartScopes (empty ones hidden; they update when you open the web card).
+  Open a list and use Search at the top to find a title or author. Pick a
+  book to download it to /Books/BookOrbit.
 - Reading sessions: every reading session is sent to BookOrbit by itself
   (reading log, streaks, stats), when the reader goes online or to sleep.
 - Reading progress: uses the reader's own KOReader sync, which this plugin

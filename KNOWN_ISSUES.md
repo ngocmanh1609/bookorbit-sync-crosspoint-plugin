@@ -19,6 +19,10 @@
   does not implement CrossPoint's own clipping-sync endpoint (`/api/v1/clippings`), which is why the card turns
   that sync off.
 - **Bookmarks** are not synced. The reader's bookmarks have no exchange format in this version.
+- **One level of catalog lists.** The firmware's plugin catalog has one list picker, and choosing a book can only
+  download it or show its details. "Collections → a collection → its books" can't be built, so collections and
+  SmartScopes are listed flat, with a prefix. CrossPoint's built-in OPDS browser with a BookOrbit OPDS user can
+  browse them as folders.
 
 ## Catalog
 
@@ -27,8 +31,11 @@
   Books with one EPUB, the usual case, are fine.
 - **Server under a sub-path** (for example `https://example.com/bookorbit`): downloads may fail. BookOrbit answers
   with `/api/v1/...` paths, which the reader joins to the host only.
-- **Collections and SmartScopes** are written into `device.json`. An update resets them until you next open the web
-  card, which restores them. Their number is capped so `device.json` stays under the reader's 8KB limit.
+- **Libraries, collections and SmartScopes** are written into `device.json` by the web card, which only runs while
+  its page is open. A change on the server shows on the reader after the next visit to the card.
+  - An update resets the lists to libraries-only until that visit.
+  - Their number is capped so `device.json` stays under the reader's 8KB limit.
+  - SmartScopes beyond the server's preview limit report no book count, so empty ones of those can't be hidden.
 - **Search** sits at the top of an open list, not on the list picker. That is where the firmware puts it.
 - **Without a saved config** the catalog shows an error. Set up the web card first.
 
