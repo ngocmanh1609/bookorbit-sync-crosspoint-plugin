@@ -11,6 +11,8 @@ WHAT IT DOES
   book to download it to /Books/BookOrbit.
 - Reading sessions: every reading session is sent to BookOrbit by itself
   (reading log, streaks, stats), when the reader goes online or to sleep.
+  "BookOrbit: reading time sent" at sleep means the reading time went out,
+  not your position.
 - Reading progress: uses the reader's own KOReader sync, which this plugin
   sets up for you.
 - Highlights, status and rating: from the plugin's card on the reader's
@@ -25,11 +27,15 @@ SET UP (once)
 3. Leave File Transfer. No restart is needed.
 
 SYNC READING PROGRESS
-Inside a book: reader menu > Sync progress. If your reader lists it, you
-can also set Settings > Controls > Short power button to Sync. When the positions
-differ the reader asks: Apply remote progress (jump to BookOrbit's place)
-or Upload local progress (keep this reader's place). The reader never
-syncs progress on its own.
+The reader never syncs progress on its own. Inside a book: reader menu >
+Sync progress. (CrossPoint versions after 2.0.0 add Sync on sleep; press
+Save on the web card again and it is turned on.)
+
+Tip: set Settings > Controls > Short Power Button Click to CrossPoint Sync
+(the Picco lists this). Open the book and short-press the power button
+whenever you want the progress from another device. When the positions
+differ the reader asks: Apply remote progress (jump to the place saved
+on the other device) or Upload local progress (keep this reader's place).
 
 HIGHLIGHTS
 The reader never syncs highlights by itself. To sync them:

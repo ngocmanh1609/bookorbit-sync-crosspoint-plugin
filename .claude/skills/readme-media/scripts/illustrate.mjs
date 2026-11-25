@@ -119,7 +119,7 @@ const screens = {
       <div class="row icon sel">${down}<div class="t">Apply remote progress</div></div>
       <div class="row icon">${up}<div class="t">Upload local progress</div></div>
     </div>`),
-  '8-session': readingPage(`<div class="toast">BookOrbit: reading session sent</div>`),
+  '8-session': readingPage(`<div class="toast">BookOrbit: reading time sent</div>`),
 };
 
 for (const [name, body] of Object.entries(screens)) {

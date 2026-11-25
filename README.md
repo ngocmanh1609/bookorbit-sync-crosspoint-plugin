@@ -113,7 +113,9 @@ You can also do the same by hand in the reader's web page, on the **File Manager
 1. On the reader, open **File Transfer**. Then open the address it shows in a browser on the same Wi-Fi.
 2. Go to the **Plugins** tab and find the **BookOrbit** card.
 3. Enter the server address (for example `http://192.168.1.50:3000`) and your KOReader sync username and password.
-   Press **Test connection**, then **Save**.
+   Press **Test connection**, then **Save**. Use BookOrbit's address at the root of a host: behind a proxy under a
+   path such as `https://example.com/bookorbit`, catalog downloads fail (see
+   [Troubleshooting](#troubleshooting)).
 
 That's all. **Save** does two things:
 
@@ -132,20 +134,31 @@ That's all. **Save** does two things:
 
 ### Reading progress
 
-CrossPoint syncs progress only when you ask, from inside a book:
+CrossPoint syncs progress only when you ask, from inside a book. Open the book, then use **Reader menu → Sync progress**
+(tap or swipe up to open the menu), or a short press of the power button after the setup below.
 
-- **Reader menu → Sync progress** (tap or swipe up to open the menu).
-- Or, if your reader lists it, set **Settings → Controls → Short Power Button Click** to **Sync**, so syncing is one
-  press.
+> [!TIP]
+> **Latest progress from another device.** Set **Settings → Controls → Short Power Button Click** to **CrossPoint
+> Sync**. The Picco lists this choice. Then, whenever you want this book's progress from another device, open the book
+> and short-press the power button. That runs the same sync as **Sync progress**. Choose **Apply remote progress** to
+> jump to the place saved on the other device.
 
 When this reader and BookOrbit disagree, the reader shows both positions: chapter, page, percentage, and the device
 that saved it. Choose **Apply remote progress** to jump to BookOrbit's place, or **Upload local progress** to keep
 this one. If you'd rather not be asked, pick **Use the furthest automatically** on the card.
 
+> [!NOTE]
+> **Going to sleep doesn't sync your position on CrossPoint 2.0.0.** The **"BookOrbit: reading time sent"** message
+> you see at sleep is about your reading time (see below), not your position. A CrossPoint version newer than 2.0.0
+> adds **Sync on sleep**, which uploads your position at sleep unless BookOrbit is already further ahead. Once your
+> reader has it, press **Save** on the card again and the card turns it on, unless you untick **Also sync the
+> position when the reader sleeps**.
+
 ### Reading sessions
 
 Nothing to do. Sessions are recorded as you read and sent whenever the reader connects to Wi-Fi or goes to sleep.
-Sending one twice is harmless, because BookOrbit drops duplicates.
+When one goes out at sleep, the reader shows **"BookOrbit: reading time sent"**. Sending one twice is harmless,
+because BookOrbit drops duplicates.
 
 ### Highlights
 
@@ -229,6 +242,7 @@ rating**.
 | Download folder | Where catalog downloads go. Default `/Books/BookOrbit`. |
 | Use BookOrbit for reading progress | When ticked, **Save** also sets up the reader's progress sync. |
 | When positions differ | **Ask me**, or **Use the furthest automatically**. |
+| Also sync the position when the reader sleeps | On a CrossPoint version with **Sync on sleep** (newer than 2.0.0), **Save** turns it on or off to match. |
 | **Test connection** | Checks the address and login. Saves nothing. |
 | **Save** | Checks the login, saves the settings and, if ticked, sets up progress sync. Nothing is saved if the login fails. |
 | Catalog lists | No button: opening the page (or **Save**) updates the reader's library, collection and SmartScope entries. |
@@ -282,8 +296,10 @@ the start of any highlight that couldn't be synced, so read it before posting. P
 | **My highlight isn't in BookOrbit** | The reader never sends highlights by itself. Make it with **Clip** (not Bookmark), then press **Sync highlights** on the card. See [Highlights](#highlights). |
 | **"… from BookOrbit could not be placed in this book"** | Press **Show which** under the result to see each highlight and why. Most often it spans two chapters, or the book is a different file from BookOrbit's. |
 | **"Sync failed. Could not sync clippings"** | The reader's clipping sync is on, and BookOrbit doesn't support it. Untick **Settings → Connectivity → CrossPoint Sync → Sync Clippings**, or press **Save** on the card again. |
+| **"Sync complete" at sleep, but my position didn't sync** | That message is **"BookOrbit: reading time sent"**: only your reading time went out. On CrossPoint 2.0.0 the position syncs only with **Sync progress**. Newer CrossPoint versions add Sync on sleep; see [Reading progress](#reading-progress). |
 | The Picco isn't in BookOrbit's **Devices** list | That list only shows devices that have uploaded a position. Use **Sync progress** and choose **Upload local progress**. The reader appears as **"CrossPoint"**, a name fixed in the firmware. |
 | The catalog shows an error | Set up the card first, and check that the reader can reach the server address. |
+| Browsing works but downloads fail, behind a proxy under a path | BookOrbit's download links start at the server root, so the reader requests them without your path. Serve BookOrbit at the root of a host (for example a subdomain), or have the proxy also send `/api/v1/koreader/plugin/catalog/files/` at the root of the public host to BookOrbit. |
 | A collection or SmartScope is missing, or all of them after an update | Open the card's web page once; it updates the lists. Empty ones (no books) are hidden. |
 | No reading sessions in BookOrbit | The folder must be `/plugins/cp-orbit`. After installing, open **Home → Plugins** once (or restart the reader), and make sure the reader shows the correct time. |
 | A downloaded book won't open | That book's first file in BookOrbit isn't an EPUB (see [known issues](KNOWN_ISSUES.md)). |
@@ -316,7 +332,7 @@ npm test
 sh scripts/package.sh
 ```
 
-- `npm test` runs 49 tests against a mock BookOrbit and the firmware's rules. They cover the highlight-file format,
+- `npm test` runs 51 tests against a mock BookOrbit and the firmware's rules. They cover the highlight-file format,
   position mapping, the two-way exchange, `device.json` templates, the problem log and its redaction, the update
   notice, the Plugin Hub rules and the release zip.
 - `sh scripts/package.sh` builds `dist/cp-orbit-<version>.zip`.

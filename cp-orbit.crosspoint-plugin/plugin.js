@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.3.0';
+  const VERSION = '0.3.1';
   const PLUGIN_VERSION = 'cp-orbit/' + VERSION;
   const DEVICE_MODEL = 'CrossPoint';
   // User data lives outside the plugin folder so replacing the folder on update keeps it.
@@ -734,6 +734,21 @@
     }
   }
 
+  /**
+   * BookOrbit's download links start at the server root (/api/v1/koreader/plugin/catalog/files/…), and the
+   * firmware joins such paths to the host alone, so a server under a sub-path can browse but not download.
+   */
+  function subPathWarning(server) {
+    let path = '';
+    try {
+      path = new URL(server).pathname.replace(/\/+$/, '');
+    } catch (e) {
+      return '';
+    }
+    if (!path) return '';
+    return 'Books can\'t be downloaded from the reader\'s catalog at this address, because BookOrbit\'s download links leave out ' + path + '. Serve BookOrbit at the root of a host (for example a subdomain), or have your proxy also send ' + KO + '/plugin/catalog/files/ at the root of this host to BookOrbit.';
+  }
+
   // ---------------------------------------------------------------- BookOrbit
 
   function boError(message, status) {
@@ -834,10 +849,12 @@
    * Points the reader's own KOReader sync (progress) at BookOrbit through POST /api/settings.
    * Enum values are firmware indices, which are persisted append-only (src/SettingsList.cpp):
    * koServerType KOSync=1, koMatchMethod Binary=1, koSyncBehavior Ask=0/Smart=1, koSyncClippings Off=0.
+   * koSyncOnSleep (Off=0/On=1) arrived after 2.0.0: it uploads the position at sleep unless BookOrbit is further
+   * ahead (firmware src/sync/SyncOnSleep.cpp). Firmware without it is reported as sleep: 'unsupported'.
    */
-  async function applyKosync(cfg, password, ask, confirmFn) {
+  async function applyKosync(cfg, password, ask, confirmFn, sleepSync) {
     const target = cfg.server + KO;
-    const current = await getSettings(['koServerUrl', 'koUsername', 'koServerType', 'koMatchMethod', 'koSyncBehavior', 'koSyncClippings']);
+    const current = await getSettings(['koServerUrl', 'koUsername', 'koServerType', 'koMatchMethod', 'koSyncBehavior', 'koSyncClippings', 'koSyncOnSleep']);
     if (!current || !current.koServerUrl) throw new Error('This firmware does not offer KOReader sync settings to plugins.');
     const existing = String(current.koServerUrl.value || '').replace(/\/+$/, '');
     if (existing && existing !== target && !confirmFn('The reader\'s progress sync points at ' + existing + '. Replace it with BookOrbit?')) {
@@ -853,9 +870,11 @@
       if (choices(current[key]) === optionCount) update[key] = value;
       else skipped.push(key);
     }
+    const sleep = choices(current.koSyncOnSleep) === 2 ? 'set' : 'unsupported';
+    if (sleep === 'set') update.koSyncOnSleep = sleepSync ? 1 : 0;
     const r = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update) });
     if (!r.ok) throw new Error('The reader refused the sync settings (HTTP ' + r.status + ').');
-    return { update, skipped, passwordKept: !password };
+    return { update, skipped, passwordKept: !password, sleep };
   }
 
   // ---------------------------------------------------------------- shelves
@@ -1562,6 +1581,7 @@
       dest: el('input', { type: 'text', placeholder: DEFAULT_DEST }),
       progress: el('input', { type: 'checkbox', checked: true }),
       ask: el('select', {}, el('option', { value: 'ask' }, 'Ask me'), el('option', { value: 'smart' }, 'Use the furthest automatically')),
+      sleep: el('input', { type: 'checkbox', checked: true }),
     };
     const setupMsg = el('p', { class: 'cp-orbit-msg' });
     const shelfMsg = el('p', { class: 'cp-orbit-msg' });
@@ -1632,7 +1652,8 @@
         const { cfg: next } = formConfig();
         say(setupMsg, 'Connecting…');
         const r = await testConnection(boClient(api, next));
-        say(setupMsg, 'Connected' + (r.username ? ' as ' + r.username : '') + (r.serverVersion ? ' (BookOrbit ' + r.serverVersion + ')' : '') + '.', 'ok');
+        const note = subPathWarning(next.server);
+        say(setupMsg, 'Connected' + (r.username ? ' as ' + r.username : '') + (r.serverVersion ? ' (BookOrbit ' + r.serverVersion + ')' : '') + '.' + (note ? ' ' + note : ''), 'ok');
       } catch (e) {
         fail(setupMsg, 'test-connection', e);
       }
@@ -1650,10 +1671,12 @@
         f.password.placeholder = 'Saved (leave empty to keep)';
         let text = 'Saved.';
         if (f.progress.checked) {
-          const k = await applyKosync(next, password, f.ask.value === 'ask', confirmFn);
+          const k = await applyKosync(next, password, f.ask.value === 'ask', confirmFn, f.sleep.checked);
           if (k.declined) text += ' The reader\'s progress sync was left unchanged.';
           else {
             text += ' Reader progress sync now uses BookOrbit (binary matching, ' + (f.ask.value === 'ask' ? 'asks when positions differ' : 'furthest position wins') + ', clipping sync off).';
+            if (k.sleep === 'set' && f.sleep.checked) text += ' The position also syncs when the reader goes to sleep, unless BookOrbit is further ahead.';
+            else if (k.sleep === 'unsupported' && f.sleep.checked) text += ' This CrossPoint version cannot sync the position at sleep yet, so use Sync progress.';
             if (k.passwordKept) text += ' Enter the password again to update it on the reader too.';
             if (k.skipped.length) {
               text += ' Not set on this firmware: ' + k.skipped.join(', ') + '.';
@@ -1661,7 +1684,8 @@
             }
           }
         }
-        say(setupMsg, text, 'ok');
+        const note = subPathWarning(next.server);
+        say(setupMsg, text + (note ? ' ' + note : ''), 'ok');
         await refreshShelves(next);
       } catch (e) {
         fail(setupMsg, 'save', e);
@@ -1855,6 +1879,7 @@
       row('Download folder', f.dest),
       row('Use BookOrbit for reading progress', f.progress),
       row('When positions differ', f.ask),
+      row('Also sync the position when the reader sleeps', f.sleep),
       el('div', { class: 'setting-row' }, button('Test connection', onTest), ' ', button('Save', onSave)),
       setupMsg,
       el('h3', {}, 'Catalog lists'),
@@ -1884,6 +1909,8 @@
           f.user.value = cfg.user || '';
           f.dest.value = cfg.dest_dir || '';
           if (cfg.key) f.password.placeholder = 'Saved (leave empty to keep)';
+          const note = subPathWarning(cfg.server || '');
+          if (note) say(setupMsg, note, 'error');
         }
         const recent = await readJson(RECENT_PATH);
         const books = ((recent && recent.books) || []).filter((b) => /\.epub$/i.test(b.path || ''));
@@ -1941,6 +1968,7 @@
     restoreShelves,
     describeShelves,
     normalizeServer,
+    subPathWarning,
     deviceDatetime,
     redact,
     createLog,

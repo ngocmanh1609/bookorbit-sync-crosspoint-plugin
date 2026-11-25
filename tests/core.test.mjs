@@ -362,10 +362,22 @@ test('KOSync: points the reader\'s progress sync at BookOrbit with binary matchi
     { koServerUrl: 'http://bo.local:3000/api/v1/koreader', koUsername: 'reader', koPassword: 'secret', koServerType: 1, koMatchMethod: 1, koSyncBehavior: 0, koSyncClippings: 0 },
   ]);
   assert.deepEqual(plain(r.skipped), []);
+  assert.equal(r.sleep, 'unsupported', 'CrossPoint 2.0.0 has no Sync on sleep');
   assert.equal(reader.settings.koSyncClippings.value, 0, 'clipping sync (reported as a toggle) is turned off, or Sync progress fails');
   await plugin.applyKosync(CFG, '', false, () => true);
   assert.equal('koPassword' in reader.settingsPosts[1], false, 'no password typed: the reader keeps its own');
   assert.equal(reader.settingsPosts[1].koSyncBehavior, 1);
+});
+
+test('KOSync: turns on the firmware\'s Sync on sleep where it exists, and off when unticked', async () => {
+  const reader = fakeReader({ bookorbit: createBookOrbit() });
+  reader.settings.koSyncOnSleep = { key: 'koSyncOnSleep', type: 'toggle', value: 0 }; // firmware after 2.0.0
+  const { lib: plugin } = loadPlugin(reader);
+  const r = await plugin.applyKosync(CFG, 'secret', true, () => true, true);
+  assert.equal(r.sleep, 'set');
+  assert.equal(reader.settings.koSyncOnSleep.value, 1);
+  await plugin.applyKosync(CFG, 'secret', true, () => true, false);
+  assert.equal(reader.settings.koSyncOnSleep.value, 0);
 });
 
 test('KOSync: asks before replacing another sync server, and skips settings it cannot verify', async () => {
@@ -479,6 +491,7 @@ test('card: loads saved settings after an update, saves only to /.cp-orbit and s
   const setupMsg = () => container.querySelector('.cp-orbit-msg').textContent;
   await waitFor(() => /Saved\.|refused|Enter/.test(setupMsg()));
   assert.match(container.textContent, /Saved\. Reader progress sync now uses BookOrbit/);
+  assert.match(container.textContent, /This CrossPoint version cannot sync the position at sleep yet, so use Sync progress\./);
   const cfg = reader.readJson('/.cp-orbit/config.json');
   assert.deepEqual(cfg, { server: 'http://bo.local:3000', user: 'reader', key: md5hex('secret'), device_id: 'kept-id', dest_dir: '/Books/BO' });
   assert.equal(JSON.stringify(cfg).includes('secret'), false, 'only the md5 is stored');
@@ -493,4 +506,27 @@ test('card: loads saved settings after an update, saves only to /.cp-orbit and s
   saveStatus.dispatchEvent(new document.defaultView.Event('click'));
   await waitFor(() => /Press Show status & rating/.test(container.textContent));
   assert.equal(bookorbit.calls.some((c) => c.method === 'PUT'), false, 'nothing is sent before the status was shown');
+});
+
+test('card: a server under a sub-path is told downloads will fail, while browsing and sync still work', async () => {
+  assert.equal(lib.subPathWarning('http://bo.local:3000'), '');
+  assert.equal(lib.subPathWarning('https://example.com/'), '');
+  assert.match(lib.subPathWarning('https://example.com/proxy/bookorbit'), /leave out \/proxy\/bookorbit\. Serve BookOrbit at the root of a host/);
+
+  // A BookOrbit behind a proxy under /proxy/bookorbit: the API answers there, but its download links start at the root.
+  const inner = createBookOrbit();
+  const bookorbit = { ...inner, handle: (m, url, h, b) => inner.handle(m, url.replace('/proxy/bookorbit', ''), h, b) };
+  const reader = fakeReader({ bookorbit, files: { [PLUGIN_DIR + '/device.json']: DEVICE_JSON } });
+  const { registered, document } = loadPlugin(reader);
+  const container = document.getElementById('c');
+  await registered[0](container, reader.api);
+  const inputs = container.querySelectorAll('input');
+  inputs[0].value = 'https://example.com/proxy/bookorbit';
+  inputs[1].value = 'reader';
+  inputs[2].value = 'secret';
+  Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Save').dispatchEvent(new document.defaultView.Event('click'));
+  const setupMsg = () => container.querySelector('.cp-orbit-msg').textContent;
+  await waitFor(() => /Saved\.|refused|Enter|reach/.test(setupMsg()));
+  assert.match(setupMsg(), /Saved\..*Books can't be downloaded from the reader's catalog at this address/);
+  assert.equal(reader.readJson('/.cp-orbit/config.json').server, 'https://example.com/proxy/bookorbit', 'still saved: everything else works');
 });

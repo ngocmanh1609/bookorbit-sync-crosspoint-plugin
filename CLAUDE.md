@@ -13,7 +13,7 @@ ships as written.
 
 ```bash
 npm ci                     # dev deps only: jszip, linkedom
-npm test                   # node --test tests/*.test.mjs (49 tests, no network)
+npm test                   # node --test tests/*.test.mjs (51 tests, no network)
 node --test tests/core.test.mjs                                   # one file
 node --test --test-name-pattern="sync:" tests/core.test.mjs       # tests whose name matches
 sh scripts/package.sh      # -> dist/cp-orbit-<version>.zip containing one cp-orbit/ folder
@@ -106,9 +106,15 @@ keeps it:
 | `koMatchMethod` | Binary (1) |
 | `koSyncBehavior` | Ask (0) or Smart (1) |
 | `koSyncClippings` | Off (0) |
+| `koSyncOnSleep` | On (1) or Off (0), from the card's checkbox, set only when the firmware offers it (after 2.0.0) |
 
 Enum values are firmware indices. Off/On settings come back from `GET /api/settings` as `type: "toggle"` with no
 `options` array. An earlier bug skipped them because of that, which left clipping sync on and made Sync progress fail.
+
+**Sync on sleep** (firmware `src/sync/SyncOnSleep.cpp`, `develop` after 2.0.0): at sleep it pulls, then uploads the
+position only if the local percentage is at least BookOrbit's. With server type KOSync it skips the bookmark and
+session extras, and with clipping sync off it skips clippings. On 2.0.0 the only thing sent at sleep is cp-orbit's
+`reader.session` ("BookOrbit: reading time sent"), which users can mistake for a position sync.
 
 **Two-way highlights** (`syncHighlights`) are the complex part. They tie together three formats from upstream
 sources:
@@ -153,6 +159,11 @@ Book identity everywhere is KOReader's **partial MD5**: 1 KiB at 0 and at 1024·
   `README.md` at 16KB or less. `manifest.json` `files` must list exactly the payload files.
 - **Book formats:** the catalog filters `format=epub`, because the reader opens only EPUB/TXT/MD/XTC and
   `download.filename` is fixed to `.epub`.
+- **Sub-path servers can't download** (issue #3):
+  - **Why:** BookOrbit's `files[].downloadUrl` is root-relative, and `catalog.server_paths` joins it to the origin
+    only. List items carry no download link, and files download only by file id, so `{cfg.server}{url}` can't work.
+  - **What the card does:** `subPathWarning` warns on load, Test connection and Save.
+  - **The fix lives elsewhere:** in the user's proxy or in BookOrbit, not the plugin.
 - **Test DOM:** tests run `plugin.js` in `node:vm` with linkedom (`tests/helpers.mjs`).
   - **Shims:** linkedom lacks `checkbox.checked` and `select.value`, so the harness shims them. Don't work around
     this in `plugin.js`.

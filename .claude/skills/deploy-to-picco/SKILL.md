@@ -60,7 +60,7 @@ If the user also has the older `bookorbit-sync` plugin, they should remove it. O
 - **Progress:** in a book, reader menu → Sync progress shows "Progress found!" with Apply/Upload when the positions
   differ. "Could not sync clippings" means the reader's clipping sync is on: Save on the card turns it off, or untick
   Settings → Connectivity → CrossPoint Sync → Sync Clippings.
-- **Sessions:** read for a minute or more, then sleep. Expect the "BookOrbit: reading session sent" message.
+- **Sessions:** read for a minute or more, then sleep. Expect the "BookOrbit: reading time sent" message.
 - **Screenshots:** **Power + Down** saves a BMP in `/screenshots/`. Fetch it with
   `curl -o shot.bmp "http://<reader-ip>/download?path=/screenshots/<file>.bmp"`. List the folder with
   `curl "http://<reader-ip>/api/files?path=/screenshots"`. The `readme-media` skill can frame these screenshots.

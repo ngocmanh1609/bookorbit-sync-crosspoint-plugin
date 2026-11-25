@@ -15,6 +15,9 @@
   rebuilt. Bulk download is not offered either: the reader downloads one book at a time.
 - **No automatic progress pull.** Progress syncs when you use **Sync progress**. CrossPoint runs nothing when a book
   opens, and a plugin cannot move the reading position.
+- **No position upload at sleep on 2.0.0.** At sleep, cp-orbit sends only the reading time ("BookOrbit: reading time
+  sent"). A plugin event can't carry the exact position. CrossPoint versions after 2.0.0 add **Sync on sleep**, which
+  uploads the position at sleep only when BookOrbit isn't further ahead; **Save** on the card turns it on there.
 - **The reader never syncs highlights by itself.** They sync when you press **Sync highlights** on the web card.
   Plugin events cannot read files. BookOrbit also does not implement CrossPoint's own clipping-sync endpoint
   (`/api/v1/clippings`), which is why the card turns that sync off.
@@ -31,8 +34,14 @@
 - **EPUB only.** The reader opens EPUB, TXT, Markdown and XTC files, and the download name always ends in `.epub`.
 - **Books with several formats** download the book's first file. If that is not the EPUB, the file will not open.
   Books with one EPUB, the usual case, are fine.
-- **Server under a sub-path** (for example `https://example.com/bookorbit`): downloads may fail. BookOrbit answers
-  with `/api/v1/...` paths, which the reader joins to the host only.
+- **Server under a sub-path** (for example `https://example.com/bookorbit`): browsing, progress, highlights and
+  sessions work, but downloads from the catalog fail.
+  - **Why:** BookOrbit answers with download links that start at the server root
+    (`/api/v1/koreader/plugin/catalog/files/…`), and the reader joins them to the host only, without `/bookorbit`.
+    BookOrbit's book lists carry no download link, so the plugin can't build one itself.
+  - **Fix:** serve BookOrbit at the root of a host (for example `bookorbit.example.com`), or have the proxy also send
+    `/api/v1/koreader/plugin/catalog/files/` at the root of the public host to BookOrbit.
+  - **Warning:** the card shows a warning when the server address has a path.
 - **Libraries, collections and SmartScopes** are written into `device.json` by the web card, which only runs while
   its page is open. A change on the server shows on the reader after the next visit to the card.
   - An update resets the lists to libraries-only until that visit.
